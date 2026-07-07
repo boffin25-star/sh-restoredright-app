@@ -1,8 +1,20 @@
--- Run this once in the Supabase SQL Editor (Dashboard → SQL Editor → New query)
--- Adds a "preferred supplier" flag and a lat/lng cache (so addresses only
--- need to be geocoded once, not on every app load) to support sorting
--- suppliers by preferred-first, then nearest-to-the-user.
-
-alter table contacts add column if not exists preferred boolean default false;
-alter table contacts add column if not exists lat numeric;
-alter table contacts add column if not exists lng numeric;
+{
+  "name": "sh-job-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "xlsx": "^0.18.5",
+    "recharts": "^2.12.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.1.4"
+  }
+}

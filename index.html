@@ -1,17 +1,45 @@
--- Time tracking: crew clock in/out on specific jobs
-create table if not exists time_entries (
-  id text primary key,
-  job_id text not null,
-  job_customer text,
-  user_name text not null,
-  clock_in timestamptz not null,
-  clock_out timestamptz,
-  duration_minutes numeric,
-  notes text,
-  created_at timestamptz default now()
-);
-create index if not exists time_entries_job_id_idx on time_entries(job_id);
-create index if not exists time_entries_user_idx on time_entries(user_name);
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1B3A6B" />
 
--- Add estimated and actual hours to job tasks
-alter table jobs add column if not exists time_entries jsonb default '[]';
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- iOS / Apple home screen support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="S&H Jobs" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- Android / Chrome -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+
+    <title>S&amp;H Services — Job Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; }
+      body { background: #1B3A6B; -webkit-font-smoothing: antialiased; }
+      input, select, textarea, button { font-family: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Register the service worker so the app shell is cached and installable.
+      // Wrapped in a check so it never breaks the app if unsupported.
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>
