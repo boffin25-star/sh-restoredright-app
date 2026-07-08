@@ -944,14 +944,15 @@ function PolicyAcknowledgmentGate({ user, children }) {
   useEffect(() => {
     if (!user?.name) return;
     (async () => {
-      const hasAck = await brCheckPolicyAck(user.name);
-      if (!hasAck) {
-        try {
-          const rows = await sbFetch("company_policy?id=eq.current", { headers: SB_HEADERS });
-          setPolicy(rows?.[0] || null);
-        } catch {}
-        setNeedsAck(true);
-      }
+      try {
+        const rows = await sbFetch("company_policy?id=eq.current", { headers: SB_HEADERS });
+        const policy = rows?.[0] || null;
+        // If gate is disabled by an owner, skip acknowledgment entirely
+        if (policy?.gate_enabled === false) { setChecked(true); return; }
+        setPolicy(policy);
+        const hasAck = await brCheckPolicyAck(user.name);
+        if (!hasAck) setNeedsAck(true);
+      } catch {}
       setChecked(true);
     })();
   }, [user?.name]);
@@ -1047,6 +1048,183 @@ function CompanyPolicyModal({ open, onClose, user }) {
           </div>
         ))}
         <p style={{ color:"#8AAFD0", fontSize:11, textAlign:"center", marginTop:8 }}>Policy changes require both Brandon & Erik to approve in the app.</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Policy Editor Card ───────────────────────────────────────────────────────
+// In-line editor for the company policy — only shown to Brandon & Erik in Admin
+const POLICY_SECTION_KEYS = ["spending","hiring","scheduling","jobProcess","governance"];
+const POLICY_SECTION_LABELS = {
+  spending: "Spending & Purchases",
+  hiring: "Hiring & Labor",
+  scheduling: "Scheduling & Jobs",
+  jobProcess: "Job Process",
+  governance: "Ownership & Decisions",
+};
+
+function PolicyEditorCard({ policyData, policyLoading, policySaving, onSave, onReload, onToggleGate, user }) {
+  const [draft, setDraft] = useState(null);
+  const [activeSection, setActiveSection] = useState("spending");
+
+  useEffect(() => {
+    if (policyData?.content) {
+      // Deep clone so edits don't mutate original
+      setDraft(JSON.parse(JSON.stringify(policyData.content)));
+    }
+  }, [policyData]);
+
+  if (policyLoading) return (
+    <div style={{ ...S.card, marginBottom:14, textAlign:"center", padding:24 }}>
+      <div style={{ fontSize:13, color:BRAND.muted }}>Loading policy…</div>
+    </div>
+  );
+
+  if (!draft) return (
+    <div style={{ ...S.card, marginBottom:14, textAlign:"center", padding:20 }}>
+      <div style={{ fontSize:13, color:BRAND.muted, marginBottom:10 }}>Policy not loaded yet.</div>
+      <button onClick={onReload} style={{ background:BRAND.navy, border:"none", borderRadius:8, color:"#fff", fontWeight:700, fontSize:13, padding:"8px 16px", cursor:"pointer" }}>Load Policy</button>
+    </div>
+  );
+
+  function updateRule(sectionKey, ruleIndex, newText) {
+    setDraft(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next[sectionKey].rules[ruleIndex] = newText;
+      return next;
+    });
+  }
+
+  function addRule(sectionKey) {
+    setDraft(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next[sectionKey].rules.push("New rule — tap to edit.");
+      return next;
+    });
+  }
+
+  function removeRule(sectionKey, ruleIndex) {
+    setDraft(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next[sectionKey].rules.splice(ruleIndex, 1);
+      return next;
+    });
+  }
+
+  function updateSectionTitle(sectionKey, newTitle) {
+    setDraft(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next[sectionKey].title = newTitle;
+      return next;
+    });
+  }
+
+  const section = draft[activeSection];
+
+  return (
+    <div style={{ ...S.card, marginBottom:14, border:`2px solid ${BRAND.navy}` }}>
+      <div style={{ fontSize:14, fontWeight:800, color:BRAND.navy, marginBottom:4 }}>✏️ Edit Company Policy</div>
+      <div style={{ fontSize:11, color:BRAND.muted, marginBottom:12 }}>
+        Changes take effect immediately. All team members will be asked to re-acknowledge on next login.
+      </div>
+
+      {/* Gate on/off toggle */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 12px", borderRadius:9, border:`1.5px solid ${BRAND.border}`, background: policyData?.gate_enabled !== false ? "#F0FDF4" : "#FFF9EC", marginBottom:14 }}>
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color: policyData?.gate_enabled !== false ? "#15803D" : "#92400E" }}>
+            {policyData?.gate_enabled !== false ? "✅ Sign-off screen is ON" : "⏸️ Sign-off screen is OFF"}
+          </div>
+          <div style={{ fontSize:11, color:BRAND.muted, marginTop:2 }}>
+            {policyData?.gate_enabled !== false
+              ? "Team members must acknowledge before logging in."
+              : "Team can log in without signing. Turn on to require acknowledgment."}
+          </div>
+        </div>
+        <button
+          onClick={() => onToggleGate?.(policyData?.gate_enabled !== false)}
+          style={{
+            padding:"7px 12px", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer", flexShrink:0, marginLeft:10,
+            background: policyData?.gate_enabled !== false ? "#DC2626" : "#15803D",
+            border:"none", color:"#fff",
+          }}
+        >
+          {policyData?.gate_enabled !== false ? "Turn OFF" : "Turn ON"}
+        </button>
+      </div>
+
+      {/* Section tabs */}
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+        {POLICY_SECTION_KEYS.map(key => (
+          <button key={key} onClick={() => setActiveSection(key)} style={{
+            padding:"5px 10px", borderRadius:99, fontSize:11, fontWeight:700, cursor:"pointer",
+            background: activeSection===key ? BRAND.navy : "rgba(27,58,107,0.08)",
+            color: activeSection===key ? "#BFD1EC" : BRAND.navy,
+            border: activeSection===key ? `2px solid ${BRAND.navy}` : `2px solid ${BRAND.border}`,
+          }}>
+            {POLICY_SECTION_LABELS[key]}
+          </button>
+        ))}
+      </div>
+
+      {/* Section title */}
+      <div style={{ marginBottom:12 }}>
+        <label style={S.lbl}>Section Title</label>
+        <input
+          style={S.input}
+          value={section?.title || ""}
+          onChange={e => updateSectionTitle(activeSection, e.target.value)}
+          placeholder="Section title…"
+        />
+      </div>
+
+      {/* Rules list */}
+      <div style={{ marginBottom:12 }}>
+        <label style={S.lbl}>Rules ({section?.rules?.length || 0})</label>
+        {(section?.rules || []).map((rule, i) => (
+          <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:8 }}>
+            <div style={{ color:BRAND.muted, fontSize:12, paddingTop:12, flexShrink:0, width:16, textAlign:"center" }}>{i+1}</div>
+            <textarea
+              value={rule}
+              onChange={e => updateRule(activeSection, i, e.target.value)}
+              rows={2}
+              style={{ ...S.textarea, flex:1, height:"auto", minHeight:60, fontSize:13 }}
+              placeholder="Rule text…"
+            />
+            <button
+              onClick={() => removeRule(activeSection, i)}
+              style={{ background:"none", border:`1px solid #FCA5A5`, borderRadius:8, color:"#DC2626", fontSize:16, width:32, height:32, cursor:"pointer", flexShrink:0, marginTop:4, display:"flex", alignItems:"center", justifyContent:"center" }}
+              title="Remove rule"
+            >✕</button>
+          </div>
+        ))}
+        <button
+          onClick={() => addRule(activeSection)}
+          style={{ width:"100%", padding:"8px 0", borderRadius:9, border:`2px dashed ${BRAND.border}`, background:"transparent", color:BRAND.muted, fontWeight:700, fontSize:13, cursor:"pointer", marginTop:4 }}
+        >
+          + Add Rule
+        </button>
+      </div>
+
+      {/* Save button */}
+      <div style={{ display:"flex", gap:8, marginTop:4 }}>
+        <button
+          onClick={() => onSave(draft)}
+          disabled={policySaving}
+          style={{ flex:1, padding:"12px 0", borderRadius:10, background:BRAND.navy, border:"none", color:"#BFD1EC", fontWeight:800, fontSize:14, cursor:policySaving?"not-allowed":"pointer", opacity:policySaving?0.7:1 }}
+        >
+          {policySaving ? "Saving…" : "💾 Save Policy Changes"}
+        </button>
+        <button
+          onClick={() => setDraft(JSON.parse(JSON.stringify(policyData.content)))}
+          style={{ padding:"12px 16px", borderRadius:10, background:"transparent", border:`1.5px solid ${BRAND.border}`, color:BRAND.muted, fontWeight:700, fontSize:13, cursor:"pointer" }}
+        >
+          Reset
+        </button>
+      </div>
+
+      <div style={{ fontSize:11, color:BRAND.muted, textAlign:"center", marginTop:10 }}>
+        Last updated by {policyData?.updated_by || "—"} · Only Brandon & Erik can save changes
       </div>
     </div>
   );
@@ -15552,6 +15730,72 @@ function AdminTab({ user, onShowPolicy }) {
   const [savingProfilePics, setSavingProfilePics] = useState(false);
   const [confirmRemoveId, setConfirmRemoveId] = useState(null);
 
+  // ── Company Policy Editor ──
+  const [showPolicyEditor, setShowPolicyEditor] = useState(false);
+  const [policyData, setPolicyData] = useState(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
+
+  async function loadPolicy() {
+    setPolicyLoading(true);
+    try {
+      const rows = await sbFetch("company_policy?id=eq.current", { headers: SB_HEADERS });
+      if (rows?.[0]) setPolicyData(rows[0]);
+    } catch {}
+    setPolicyLoading(false);
+  }
+
+  async function savePolicy(updatedContent) {
+    // Require co-owner: only Brandon or Erik can save policy changes
+    if (!["brandon", "erik"].includes(user?.id)) {
+      showToast("Only Brandon or Erik can update the company policy.", false);
+      return;
+    }
+    setPolicySaving(true);
+    try {
+      await sbFetch("company_policy?id=eq.current", {
+        method: "PATCH",
+        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+        body: JSON.stringify({
+          content: updatedContent,
+          updated_by: user.name,
+          updated_at: new Date().toISOString(),
+          version: policyData?.version || "1.0",
+        }),
+      });
+      // Invalidate all existing acknowledgments so everyone re-signs
+      await sbFetch(`policy_acknowledgments?policy_version=eq.${policyData?.version || "1.0"}`, {
+        method: "DELETE",
+        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+      });
+      setPolicyData(prev => ({ ...prev, content: updatedContent }));
+      showToast("✅ Policy updated — all team members will re-acknowledge on next login.");
+      setShowPolicyEditor(false);
+    } catch (e) {
+      showToast("Failed to save policy: " + (e?.message || ""), false);
+    }
+    setPolicySaving(false);
+  }
+
+  async function togglePolicyGate(currentlyEnabled) {
+    if (!["brandon", "erik"].includes(user?.id)) {
+      showToast("Only Brandon or Erik can change this setting.", false);
+      return;
+    }
+    const newVal = !currentlyEnabled;
+    try {
+      await sbFetch("company_policy?id=eq.current", {
+        method: "PATCH",
+        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+        body: JSON.stringify({ gate_enabled: newVal, updated_by: user.name, updated_at: new Date().toISOString() }),
+      });
+      setPolicyData(prev => ({ ...prev, gate_enabled: newVal }));
+      showToast(newVal ? "✅ Policy sign-off turned ON — team will see it on next login." : "Sign-off screen turned OFF — team can log in without signing.");
+    } catch (e) {
+      showToast("Failed to update setting: " + (e?.message || ""), false);
+    }
+  }
+
   function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), ok ? 3500 : 9000); }
 
   useEffect(() => {
@@ -15724,9 +15968,29 @@ function AdminTab({ user, onShowPolicy }) {
       <div style={S.scroll}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>⚙️ Admin</div>
-          <button onClick={() => onShowPolicy?.()} style={{ background:BRAND.navy, border:"none", borderRadius:8, color:"#BFD1EC", fontWeight:700, fontSize:11, padding:"6px 10px", cursor:"pointer" }}>📋 Company Policy</button>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={() => onShowPolicy?.()} style={{ background:"rgba(27,58,107,0.08)", border:`1px solid ${BRAND.border}`, borderRadius:8, color:BRAND.navy, fontWeight:700, fontSize:11, padding:"6px 10px", cursor:"pointer" }}>📋 View Policy</button>
+            {["brandon","erik"].includes(user?.id) && (
+              <button onClick={() => { setShowPolicyEditor(e => !e); if (!policyData) loadPolicy(); }} style={{ background:BRAND.navy, border:"none", borderRadius:8, color:"#BFD1EC", fontWeight:700, fontSize:11, padding:"6px 10px", cursor:"pointer" }}>
+                {showPolicyEditor ? "✕ Close" : "✏️ Edit Policy"}
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 16 }}>Manage your team, permissions, and account access.</div>
+
+        {/* ── Company Policy Editor ── */}
+        {showPolicyEditor && (
+          <PolicyEditorCard
+            policyData={policyData}
+            policyLoading={policyLoading}
+            policySaving={policySaving}
+            onSave={savePolicy}
+            onReload={loadPolicy}
+            onToggleGate={togglePolicyGate}
+            user={user}
+          />
+        )}
 
         {/* ── Send Push Notification ── */}
         <NotificationTestCard directory={directory} showToast={showToast} />
