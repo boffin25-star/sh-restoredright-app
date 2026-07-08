@@ -9683,7 +9683,202 @@ async function deletePtoEvent(id) {
   await sbFetch(`pto_events?id=eq.${id}`, { method: "DELETE" });
 }
 
-function CalendarView({ jobs, user }) {
+// ─── Schedule Job Button & Form ───────────────────────────────────────────────
+// Appears in the Calendar Jobs view when a day is selected.
+// Lets admins pick any existing job and assign it to that date.
+function ScheduleJobButton({ jobs, selectedDate, user, onCheckConflict, onScheduled }) {
+  const [open, setOpen] = useState(false);
+  const [jobId, setJobId] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const [conflictPending, setConflictPending] = useState(false);
+
+  // Jobs that are not yet Done/Cancelled and don't already start on this date
+  const schedulable = (jobs || []).filter(j =>
+    !["Done","Cancelled"].includes(j.status) &&
+    (j.startDate || j.scheduledDate) !== selectedDate
+  );
+
+  async function handleSave() {
+    if (!jobId) { setErr("Please pick a job."); return; }
+    setSaving(true);
+    setErr(null);
+    try {
+      const job = schedulable.find(j => j.id === jobId);
+
+      // Run the conflict check — if it finds a conflict it creates a schedule_conflict
+      // record, notifies the other owner, and returns true. We block the save and
+      // show the pending state so the user knows to wait for authorization.
+      if (onCheckConflict) {
+        const hasConflict = await onCheckConflict(jobId, selectedDate, job?.customerName);
+        if (hasConflict) {
+          setConflictPending(true);
+          setSaving(false);
+          return; // Don't save yet — wait for the other owner to authorize
+        }
+      }
+
+      const patch = { scheduledDate: selectedDate, startDate: selectedDate, status: "Scheduled" };
+      if (endDate) patch.completedDate = endDate;
+      await sbFetch(`jobs?id=eq.${jobId}`, {
+        method: "PATCH",
+        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+        body: JSON.stringify(patch),
+      });
+      setOpen(false);
+      setJobId("");
+      setEndDate("");
+      setConflictPending(false);
+      onScheduled?.();
+    } catch(e) {
+      setErr("Save failed. Please try again.");
+    }
+    setSaving(false);
+  }
+
+  // Force-save after conflict was authorized (or user overrides)
+  async function handleForceSave() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const patch = { scheduledDate: selectedDate, startDate: selectedDate, status: "Scheduled" };
+      if (endDate) patch.completedDate = endDate;
+      await sbFetch(`jobs?id=eq.${jobId}`, {
+        method: "PATCH",
+        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+        body: JSON.stringify(patch),
+      });
+      setOpen(false);
+      setJobId("");
+      setEndDate("");
+      setConflictPending(false);
+      onScheduled?.();
+    } catch(e) {
+      setErr("Save failed. Please try again.");
+    }
+    setSaving(false);
+  }
+
+  const selectedJob = schedulable.find(j => j.id === jobId);
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: open ? BRAND.muted : BRAND.navy,
+          border: "none", borderRadius: 8,
+          color: "#BFD1EC", fontWeight: 700, fontSize: 12,
+          padding: "6px 12px", cursor: "pointer", flexShrink: 0,
+        }}
+      >
+        {open ? "Cancel" : "+ Schedule Job"}
+      </button>
+
+      {open && (
+        <div style={{ ...S.card, borderLeft: `4px solid ${BRAND.navy}`, marginBottom: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: BRAND.navy, marginBottom: 4 }}>
+            Schedule a Job on {selectedDate}
+          </div>
+          <div style={{ fontSize: 11, color: BRAND.muted, marginBottom: 12 }}>
+            Pick a job and it will be set to start on this date.
+          </div>
+
+          <label style={S.lbl}>Job *</label>
+          <select
+            style={{ ...S.input, marginBottom: 10 }}
+            value={jobId}
+            onChange={e => setJobId(e.target.value)}
+          >
+            <option value="">Select job…</option>
+            {schedulable.map(j => (
+              <option key={j.id} value={j.id}>
+                {j.customerName} — {j.id} ({j.status})
+              </option>
+            ))}
+          </select>
+
+          {selectedJob && (
+            <div style={{ background: "#EFF6FF", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy }}>{selectedJob.customerName}</div>
+              {selectedJob.address && <div style={{ fontSize: 11, color: BRAND.muted }}>{selectedJob.address}</div>}
+              <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 2 }}>
+                Current status: <strong>{selectedJob.status}</strong>
+                {(selectedJob.startDate || selectedJob.scheduledDate)
+                  ? ` · Currently scheduled: ${fmtDate(selectedJob.startDate || selectedJob.scheduledDate)}`
+                  : " · Not yet scheduled"}
+              </div>
+            </div>
+          )}
+
+          <label style={S.lbl}>End / Completion Date (optional)</label>
+          <input
+            type="date"
+            style={{ ...S.input, marginBottom: 10 }}
+            value={endDate}
+            min={selectedDate}
+            onChange={e => setEndDate(e.target.value)}
+          />
+
+          {err && <div style={{ color: "#DC2626", fontSize: 12, marginBottom: 8 }}>{err}</div>}
+
+          {/* Conflict pending state */}
+          {conflictPending && (
+            <div style={{ background: "#FFF9EC", borderRadius: 10, padding: "12px 14px", border: "2px solid #FDE68A", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>
+                ⚠️ Schedule Conflict Detected
+              </div>
+              <div style={{ fontSize: 12, color: "#78350F", marginBottom: 10 }}>
+                This date is too close to an existing job. The other owner has been notified and has 4 hours to authorize or propose a new date.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleForceSave}
+                  disabled={saving}
+                  style={{ flex: 1, padding: "8px 0", borderRadius: 8, background: "#92400E", border: "none", color: "#FDE68A", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+                >
+                  {saving ? "…" : "Schedule Anyway"}
+                </button>
+                <button
+                  onClick={() => { setConflictPending(false); setOpen(false); setJobId(""); setEndDate(""); }}
+                  style={{ flex: 1, padding: "8px 0", borderRadius: 8, background: "transparent", border: "1.5px solid #FCA5A5", color: "#92400E", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+                >
+                  Wait for Authorization
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!conflictPending && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={handleSave}
+                disabled={!jobId || saving}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10,
+                  background: jobId && !saving ? BRAND.navy : "rgba(27,58,107,0.3)",
+                  border: "none", color: "#BFD1EC", fontWeight: 700,
+                  fontSize: 14, cursor: jobId && !saving ? "pointer" : "not-allowed",
+                }}
+              >
+                {saving ? "Checking…" : "✅ Schedule Job"}
+              </button>
+              <button
+                onClick={() => { setOpen(false); setJobId(""); setEndDate(""); setErr(null); }}
+                style={{ padding: "10px 14px", borderRadius: 10, background: "transparent", border: `1.5px solid ${BRAND.border}`, color: BRAND.muted, cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function CalendarView({ jobs, user, onCheckConflict }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -9872,8 +10067,19 @@ function CalendarView({ jobs, user }) {
       {view === "jobs" && <>
         {sel && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: BRAND.navy, marginBottom: 8 }}>
-              {monthName.split(" ")[0]} {sel} — {selJobs.length} job{selJobs.length !== 1 ? "s" : ""}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: BRAND.navy }}>
+                {monthName.split(" ")[0]} {sel} — {selJobs.length} job{selJobs.length !== 1 ? "s" : ""}
+              </div>
+              {canAdmin(user) && (
+                <ScheduleJobButton
+                  jobs={jobs}
+                  selectedDate={key(sel)}
+                  user={user}
+                  onCheckConflict={onCheckConflict}
+                  onScheduled={() => { setSel(null); window.dispatchEvent(new CustomEvent("sh-reload-jobs")); }}
+                />
+              )}
             </div>
             {selJobs.length === 0
               ? <div style={{ color: BRAND.muted, fontSize: 13, padding: "8px 0" }}>No jobs on this day.</div>
@@ -20602,6 +20808,13 @@ export default function App() {
     setLoading(false);
   }, []);
 
+  // Listen for calendar schedule updates so CalendarView can trigger a job reload
+  useEffect(() => {
+    const handler = () => loadJobs();
+    window.addEventListener("sh-reload-jobs", handler);
+    return () => window.removeEventListener("sh-reload-jobs", handler);
+  }, [loadJobs]);
+
   // Builds the full notification set for the bell icon: overdue/upcoming follow-ups,
   // active tasks, and any note where the user was @mentioned — regardless of when
   // they were created. This is what stays live behind the bell at all times.
@@ -21152,7 +21365,7 @@ export default function App() {
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
-            {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
+            {tab==="calendar"  && <CalendarView jobs={jobs} user={user} onCheckConflict={brCheckScheduleConflict} />}
             {tab==="contacts"  && (() => { markFeatureSeen("contacts"); return <ContactsTab user={user} />; })()}
             {tab==="receipts"  && <StandaloneReceiptsTab user={user} />}
             {tab==="costcalc"  && <JobCostCalcTab user={user} />}
