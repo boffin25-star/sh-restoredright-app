@@ -903,7 +903,18 @@ const S = {
 
 
 // ─── Business Rules & Governance ─────────────────────────────────────────────
-const BR_APPROVAL_THRESHOLD = 200;       // dollars — purchases at or above need dual-owner approval
+const BR_APPROVAL_THRESHOLD = 200;       // dollars — purchases at or above need dual-owner approval (Erik + Brandon)
+// Priority-based auto-approval windows
+const PR_PRIORITY_WINDOWS = {
+  urgent: 30 * 60 * 1000,        // 30 minutes
+  medium: 4 * 60 * 60 * 1000,    // 4 hours
+  low:    24 * 60 * 60 * 1000,   // 24 hours
+};
+const PR_PRIORITY_META = {
+  urgent: { label: "🚨 Urgent",  color: "#DC2626", bg: "#FEF2F2", border: "#FECACA", desc: "Auto-approves in 30 min" },
+  medium: { label: "⏱️ Medium",  color: "#B45309", bg: "#FFF9EC", border: "#FDE68A", desc: "Auto-approves in 4 hrs" },
+  low:    { label: "📋 Low",     color: "#0369A1", bg: "#EFF6FF", border: "#BFDBFE", desc: "Auto-approves in 24 hrs" },
+};
 const BR_APPROVAL_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours in ms
 const BR_BUFFER_HOURS_MIN = 24;          // minimum hours between jobs (hard conflict)
 const BR_BUFFER_HOURS_PREF = 48;         // preferred buffer (soft conflict)
@@ -1232,9 +1243,9 @@ function PolicyEditorCard({ policyData, policyLoading, policySaving, onSave, onR
 
 // ─── Purchase Approval Banner ─────────────────────────────────────────────────
 // Shows pending $200+ purchase requests from the OTHER owner that need your response
-function PurchaseApprovalBanner({ pendingForMe, onApprove, onReject }) {
-  const [expanded, setExpanded] = useState(null);
-  const [rejectNote, setRejectNote] = useState("");
+function PurchaseApprovalBanner({ pendingForMe, onApprove, onHold, onReject, currentUser }) {
+  const [expanded, setExpanded] = useState(null); // null | { id, mode: "object"|"hold" }
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(null);
 
   if (!pendingForMe || pendingForMe.length === 0) return null;
@@ -1244,44 +1255,94 @@ function PurchaseApprovalBanner({ pendingForMe, onApprove, onReject }) {
     await onApprove(req);
     setBusy(null); setExpanded(null);
   };
-  const handleReject = async (req) => {
-    if (!rejectNote.trim()) { alert("Please add a reason for rejecting."); return; }
+  const handleHold = async (req) => {
     setBusy(req.id);
-    await onReject(req, rejectNote);
-    setBusy(null); setExpanded(null); setRejectNote("");
+    await onHold(req, note);
+    setBusy(null); setExpanded(null); setNote("");
+  };
+  const handleReject = async (req) => {
+    if (!note.trim()) { alert("Please add a reason for objecting."); return; }
+    setBusy(req.id);
+    await onReject(req, note);
+    setBusy(null); setExpanded(null); setNote("");
   };
 
   return (
     <div style={{ margin:"0 0 12px 0" }}>
-      {pendingForMe.map(req => (
-        <div key={req.id} style={{ background:"#FFF9EC", borderRadius:12, padding:14, border:"2px solid #FDE68A", marginBottom:8 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
-            <span style={{ fontSize:13, fontWeight:700, color:"#92400E" }}>{req.is_emergency ? "🚨 Emergency " : "⏳ "}Purchase Request</span>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontSize:16, fontWeight:800, color:"#92400E" }}>{brFmtMoney(req.amount)}</div>
-              <div style={{ fontSize:10, color:"#B45309" }}>Auto-approves in {brFmtCountdown(req.auto_approve_at)}</div>
-            </div>
-          </div>
-          <p style={{ color:"#78350F", fontSize:13, margin:"0 0 2px" }}><strong>{req.requested_by}</strong> wants to buy: {req.description}</p>
-          {req.vendor && <p style={{ color:"#92400E", fontSize:12, margin:"0 0 2px" }}>Vendor: {req.vendor}</p>}
-          {req.job_customer && <p style={{ color:"#92400E", fontSize:12, margin:0 }}>Job: {req.job_customer}{req.job_address ? ` · ${req.job_address}` : ""}</p>}
-          {req.is_emergency && req.emergency_reason && <p style={{ color:"#DC2626", fontSize:12, fontStyle:"italic", marginTop:4 }}>Emergency: {req.emergency_reason}</p>}
-          {expanded !== req.id ? (
-            <div style={{ display:"flex", gap:8, marginTop:10 }}>
-              <button onClick={() => handleApprove(req)} disabled={busy === req.id} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"#15803D", border:"none", color:"#fff", cursor:"pointer" }}>{busy === req.id ? "…" : "✅ Approve"}</button>
-              <button onClick={() => { setExpanded(req.id); setRejectNote(""); }} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"#DC2626", border:"none", color:"#fff", cursor:"pointer" }}>✕ Object</button>
-            </div>
-          ) : (
-            <div style={{ marginTop:10 }}>
-              <textarea placeholder="Reason for objecting (required)…" value={rejectNote} onChange={e => setRejectNote(e.target.value)} rows={2} style={{ width:"100%", padding:"8px 10px", borderRadius:8, fontSize:13, border:"1px solid #FCA5A5", background:"#FEF2F2", color:"#7F1D1D", resize:"vertical", boxSizing:"border-box" }} />
-              <div style={{ display:"flex", gap:8, marginTop:6 }}>
-                <button onClick={() => handleReject(req)} disabled={busy === req.id} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"#DC2626", border:"none", color:"#fff", cursor:"pointer" }}>{busy === req.id ? "…" : "Confirm Object"}</button>
-                <button onClick={() => setExpanded(null)} style={{ padding:"9px 16px", borderRadius:8, fontSize:13, background:"transparent", border:"1px solid #FCA5A5", color:"#92400E", cursor:"pointer" }}>Cancel</button>
+      {pendingForMe.map(req => {
+        const pri = PR_PRIORITY_META[req.priority] || PR_PRIORITY_META.medium;
+        const myVote = currentUser === "Brandon" ? req.brandon_vote : req.erik_vote;
+        const otherVote = currentUser === "Brandon" ? req.erik_vote : req.brandon_vote;
+        const otherName = currentUser === "Brandon" ? "Erik" : "Brandon";
+        const alreadyVoted = !!myVote;
+
+        return (
+          <div key={req.id} style={{ background: pri.bg, borderRadius:12, padding:14, border:`2px solid ${pri.border}`, marginBottom:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+              <div>
+                <span style={{ fontSize:13, fontWeight:700, color: pri.color }}>💰 Purchase Request</span>
+                <span style={{ marginLeft:8, fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:99, background: pri.color+"22", color: pri.color, border:`1px solid ${pri.border}` }}>{pri.label}</span>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:16, fontWeight:800, color: pri.color }}>{brFmtMoney(req.amount)}</div>
+                <div style={{ fontSize:10, color: pri.color }}>Auto-approves in {brFmtCountdown(req.auto_approve_at)}</div>
               </div>
             </div>
-          )}
-        </div>
-      ))}
+            <p style={{ color:"#1e293b", fontSize:13, margin:"0 0 2px" }}><strong>{req.requested_by}</strong> wants to buy: <strong>{req.description}</strong></p>
+            {req.vendor && <p style={{ color:"#475569", fontSize:12, margin:"0 0 2px" }}>Vendor: {req.vendor}</p>}
+            {req.job_customer && <p style={{ color:"#475569", fontSize:12, margin:0 }}>Job: {req.job_customer}{req.job_address ? ` · ${req.job_address}` : ""}</p>}
+
+            {/* Dual-owner vote status */}
+            <div style={{ display:"flex", gap:6, marginTop:8, padding:"7px 10px", background:"rgba(255,255,255,0.6)", borderRadius:8 }}>
+              {[
+                { name:"Brandon", vote: req.brandon_vote },
+                { name:"Erik",    vote: req.erik_vote    },
+              ].map(({ name, vote }) => {
+                const icon = !vote ? "⏳" : vote === "approved" ? "✅" : vote === "held" ? "⏸️" : "✕";
+                const col  = !vote ? "#64748b" : vote === "approved" ? "#15803D" : vote === "held" ? "#7C3AED" : "#DC2626";
+                return (
+                  <span key={name} style={{ fontSize:11, fontWeight:700, color: col, background: col+"15", borderRadius:6, padding:"3px 8px", border:`1px solid ${col}33` }}>
+                    {icon} {name}
+                  </span>
+                );
+              })}
+            </div>
+
+            {alreadyVoted && (
+              <div style={{ fontSize:11, color:"#64748b", fontStyle:"italic", marginTop:6 }}>
+                You voted <strong>{myVote}</strong>. {otherVote ? `${otherName} voted ${otherVote}.` : `Waiting on ${otherName}.`}
+              </div>
+            )}
+
+            {!alreadyVoted && expanded?.id !== req.id && (
+              <div style={{ display:"flex", gap:6, marginTop:10 }}>
+                <button onClick={() => handleApprove(req)} disabled={busy === req.id} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:12, fontWeight:700, background:"#15803D", border:"none", color:"#fff", cursor:"pointer" }}>{busy === req.id ? "…" : "✅ Approve"}</button>
+                <button onClick={() => { setExpanded({id:req.id, mode:"hold"}); setNote(""); }} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:12, fontWeight:700, background:"#7C3AED", border:"none", color:"#fff", cursor:"pointer" }}>⏸️ Hold</button>
+                <button onClick={() => { setExpanded({id:req.id, mode:"object"}); setNote(""); }} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:12, fontWeight:700, background:"#DC2626", border:"none", color:"#fff", cursor:"pointer" }}>✕ Object</button>
+              </div>
+            )}
+            {!alreadyVoted && expanded?.id === req.id && (
+              <div style={{ marginTop:10 }}>
+                <div style={{ fontSize:12, fontWeight:700, color: expanded.mode==="object" ? "#DC2626" : "#7C3AED", marginBottom:5 }}>
+                  {expanded.mode === "object" ? "✕ Object — add reason (required)" : "⏸️ Hold — add note (optional)"}
+                </div>
+                <textarea
+                  placeholder={expanded.mode === "object" ? "Why are you objecting?" : "Why is this on hold? (optional)"}
+                  value={note} onChange={e => setNote(e.target.value)} rows={2}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:8, fontSize:13, border:`1px solid ${expanded.mode==="object"?"#FCA5A5":"#C4B5FD"}`, background: expanded.mode==="object"?"#FEF2F2":"#F5F3FF", color:"#1e293b", resize:"vertical", boxSizing:"border-box" }}
+                />
+                <div style={{ display:"flex", gap:8, marginTop:6 }}>
+                  {expanded.mode === "object"
+                    ? <button onClick={() => handleReject(req)} disabled={busy === req.id} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"#DC2626", border:"none", color:"#fff", cursor:"pointer" }}>{busy===req.id?"…":"Confirm Object"}</button>
+                    : <button onClick={() => handleHold(req)} disabled={busy === req.id} style={{ flex:1, padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"#7C3AED", border:"none", color:"#fff", cursor:"pointer" }}>{busy===req.id?"…":"Confirm Hold"}</button>
+                  }
+                  <button onClick={() => setExpanded(null)} style={{ padding:"9px 16px", borderRadius:8, fontSize:13, background:"transparent", border:`1px solid ${BRAND.border}`, color:BRAND.muted, cursor:"pointer" }}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -4019,26 +4080,41 @@ function ReceiptCard({ receipt, onSave, onDelete, onLightbox, user }) {
   );
 }
 
-const BLANK_RECEIPT = { vendor: "", amount: "", category: "", note: "", photoUrl: "", travelHours: "", billable: false, paidBy: "company" };
+const BLANK_RECEIPT = { vendor: "", amount: "", category: "", note: "", photoUrl: "", travelHours: "", billable: false, paidBy: "company", priority: "medium" };
 
 function ReceiptSection({ job, onUpdate, user }) {
   const showDollars = canSeeDollars(user);
   const allowDelete = canDelete(user);
+  const isOwner = BR_CO_OWNERS.includes(user?.name);
   const isAdmin = canAdmin(user);
   const receipts = job.receipts || [];
-  const purchaseRequests = job.purchaseRequests || [];
+  const purchaseRequests = job.purchaseRequests || []; // legacy field kept for old records
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK_RECEIPT);
   const [receiptFile, setReceiptFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [toast, setToast] = useState(null);
-  const [signingPR, setSigningPR] = useState(null); // not used here, approvals happen via My Tasks/notifications — admins can still quick-approve below
   const [rejectingPR, setRejectingPR] = useState(null);
+  const [holdingPR, setHoldingPR] = useState(null);
   const [convertingPR, setConvertingPR] = useState(null); // approved request being turned into a real receipt
   const [justSubmittedPR, setJustSubmittedPR] = useState(null); // shows the "request sent" confirmation modal
   const [showScan, setShowScan] = useState(false);
+  const [approvalRequests, setApprovalRequests] = useState([]); // from approval_requests table for this job
+  const [loadingApprovals, setLoadingApprovals] = useState(false);
   const fileRef = useRef();
+
+  // Load approval_requests for this job from Supabase
+  async function loadApprovalRequests() {
+    if (!job?.id) return;
+    setLoadingApprovals(true);
+    try {
+      const rows = await sbFetch(`approval_requests?job_id=eq.${job.id}&type=eq.purchase&order=requested_at.desc`, { headers: SB_HEADERS });
+      setApprovalRequests(rows || []);
+    } catch {}
+    setLoadingApprovals(false);
+  }
+  useEffect(() => { loadApprovalRequests(); }, [job?.id]);
 
   function handleScanResult(data) {
     if (data.vendor)   setF('vendor',   data.vendor);
@@ -4058,50 +4134,59 @@ function ReceiptSection({ job, onUpdate, user }) {
 
   const isLargePurchase = parseFloat(form.amount || 0) > LARGE_PURCHASE_THRESHOLD;
 
-  // Notify Brandon, Erik, and Matt that a purchase needs approval before it's made —
-  // same mechanism as Change Order approval notifications.
-  async function notifyAdminsOfPurchaseRequest(req) {
-    for (const adminId of CAN_ADMIN) {
-      const adminName = SALES_USERS.find(u => u.id === adminId)?.name || adminId;
-      if (adminName === user.name) continue;
+  // Submit a purchase approval request to the dual-owner (Erik+Brandon) approval_requests table
+  async function submitPurchaseApprovalRequest(formData) {
+    const now = new Date();
+    const priority = formData.priority || "medium";
+    const windowMs = PR_PRIORITY_WINDOWS[priority] || PR_PRIORITY_WINDOWS.medium;
+    const priMeta  = PR_PRIORITY_META[priority]   || PR_PRIORITY_META.medium;
+    const record = {
+      id: `apr-${Date.now()}`,
+      type: "purchase",
+      job_id: job.id || null, job_customer: job.customerName || null, job_address: job.address || null,
+      requested_by: user.name, requested_at: now.toISOString(),
+      auto_approve_at: new Date(now.getTime() + windowMs).toISOString(),
+      amount: parseFloat(formData.amount), vendor: formData.vendor || null,
+      description: formData.vendor + (formData.note ? ` — ${formData.note}` : ""),
+      note: formData.note || null,
+      priority,
+      category: formData.category || null,
+      paid_by: formData.paidBy || "company",
+      brandon_vote: null, erik_vote: null,
+      brandon_vote_note: null, erik_vote_note: null,
+      brandon_voted_at: null, erik_voted_at: null,
+      is_emergency: priority === "urgent",
+      status: "pending",
+    };
+    await sbFetch("approval_requests", { method:"POST", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(record) });
+    // Notify both Erik and Brandon
+    for (const owner of BR_CO_OWNERS) {
+      if (owner === user.name) continue;
       try {
-        await insertStandaloneTask({
-          id: "PR-APPROVAL-" + req.id + "-" + adminId,
-          title: `💰 Large Purchase needs your approval — ${job.customerName}`,
-          description: `${req.vendor || "Purchase"} — $${parseFloat(req.amount).toFixed(2)}${req.note ? " — " + req.note.slice(0, 80) : ""}`,
-          assigned_to: adminName,
-          date_assigned: new Date().toISOString().slice(0, 10),
-          date_started: "", follow_up_date: "", completed_date: "",
-          status: "Pending", priority: "high",
-          job_id: job.id, job_customer: job.customerName, job_address: job.address || "", job_type: job.jobType || "",
-          created_by: user.name, created_at: new Date().toISOString(),
-        });
-        pushToUser(adminName, {
-          title: "💰 Purchase needs approval",
-          body: `${req.vendor || "Purchase"} — $${parseFloat(req.amount).toFixed(2)} for ${job.customerName}`,
+        await pushToUser(owner, {
+          title: `${priority==="urgent"?"🚨 URGENT — ":""}💰 Purchase Request: $${parseFloat(formData.amount).toFixed(2)}`,
+          body: `${user.name} wants to buy ${formData.vendor||"supplies"} for ${job.customerName}. ${priMeta.desc}.`,
           url: "/",
-          tag: "purchase-approval",
+          tag: "purchase-request",
         });
       } catch {}
     }
+    return record;
   }
 
-  // Submitting the form: if over the threshold, create a purchase REQUEST (no
-  // receipt yet — nothing has been bought). Otherwise, save the receipt directly
-  // like normal.
+  // Submitting the form: if over $200, create a dual-owner approval request.
+  // Otherwise, save the receipt directly.
   async function submitForm() {
     if (!form.vendor || !form.amount) return;
     setSaving(true);
 
     if (isLargePurchase) {
-      const req = { ...form, id: Date.now(), status: "pending", requestedBy: user.name, requestedAt: new Date().toISOString() };
-      await onUpdate({ ...job, purchaseRequests: [...purchaseRequests, req] }, false);
-      await notifyAdminsOfPurchaseRequest(req);
+      const req = await submitPurchaseApprovalRequest(form);
       setForm(BLANK_RECEIPT);
       setReceiptFile(null);
       setAdding(false);
       setSaving(false);
-      setJustSubmittedPR(req);
+      setJustSubmittedPR({ ...req, vendor: form.vendor, amount: form.amount, priority: form.priority });
       return;
     }
 
@@ -4121,14 +4206,42 @@ function ReceiptSection({ job, onUpdate, user }) {
     await onUpdate(updated, false);
   }
 
-  // Quick approve/reject directly from this section (admins only) — same as
-  // what's available in My Tasks / notifications, for convenience.
-  async function quickApprove(req) {
-    try { await approvePurchaseRequest(job, req.id, user.name); await onUpdate({ ...job }, false); showToast("Purchase approved — they can buy it now!"); }
-    catch (e) { showToast("Approval failed: " + (e?.message?.slice(0,60) || ""), false); }
-  }
-  async function quickReject(req, reason) {
-    try { await rejectPurchaseRequest(job, req.id, reason, user.name); await onUpdate({ ...job }, false); setRejectingPR(null); showToast("Purchase rejected", false); }
+  // Quick approve/hold/reject directly from this section (Erik & Brandon only)
+  // These update approval_requests in Supabase with the per-owner vote
+  async function quickVote(req, vote, voteNote) {
+    const isB = user.name === "Brandon";
+    const voteField = isB ? "brandon_vote" : "erik_vote";
+    const noteField = isB ? "brandon_vote_note" : "erik_vote_note";
+    const atField   = isB ? "brandon_voted_at"  : "erik_voted_at";
+    const otherVote = isB ? req.erik_vote        : req.brandon_vote;
+    const otherName = isB ? "Erik"               : "Brandon";
+    const now = new Date().toISOString();
+
+    let newStatus = "pending";
+    if (vote === "rejected") newStatus = "rejected";
+    else if (vote === "approved" && otherVote === "approved") newStatus = "approved";
+    else if (vote === "held") newStatus = "held";
+
+    const patch = { [voteField]: vote, [noteField]: voteNote || null, [atField]: now };
+    if (newStatus !== "pending") { patch.status = newStatus; patch.reviewed_by = user.name; patch.reviewed_at = now; }
+
+    try {
+      await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(patch) });
+      if (newStatus === "approved") {
+        await pushToUser(req.requested_by, { title:`✅ Purchase Approved: $${parseFloat(req.amount).toFixed(2)}`, body:`Both Erik & Brandon approved. You're good to buy.`, tag:"purchase-approved" });
+        if (otherName) await pushToUser(otherName, { title:`✅ Purchase Fully Approved`, body:`${user.name} also approved ${req.requested_by}'s purchase.`, tag:"purchase-approved" });
+      } else if (newStatus === "rejected") {
+        await pushToUser(req.requested_by, { title:`✕ Purchase Objected`, body:`${user.name} objected.${voteNote?" Reason: "+voteNote:""}`, tag:"purchase-rejected" });
+      } else if (newStatus === "held") {
+        await pushToUser(req.requested_by, { title:`⏸️ Purchase On Hold`, body:`${user.name} put your purchase on hold.${voteNote?" Note: "+voteNote:""}`, tag:"purchase-held" });
+      } else if (vote === "approved" && !otherVote) {
+        await pushToUser(otherName, { title:`💰 Your Vote Needed: $${parseFloat(req.amount).toFixed(2)}`, body:`${user.name} approved — waiting on you.`, tag:"purchase-request" });
+      }
+      // Refresh the local list
+      setApprovalRequests(prev => prev.map(r => r.id === req.id ? { ...r, [voteField]: vote, [noteField]: voteNote||null, [atField]: now, status: newStatus !== "pending" ? newStatus : r.status } : r));
+      setRejectingPR(null);
+      showToast(vote==="approved" ? "Vote recorded — approved!" : vote==="held" ? "Marked on hold" : "Objection recorded");
+    }
     catch (e) { showToast("Could not save: " + (e?.message?.slice(0,60) || ""), false); }
   }
 
@@ -4152,15 +4265,19 @@ function ReceiptSection({ job, onUpdate, user }) {
   }
 
   const total = receipts.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
-  const pendingRequests = purchaseRequests.filter(p => purchaseReqStatus(p) === "pending");
-  const approvedAwaitingPurchase = purchaseRequests.filter(p => purchaseReqStatus(p) === "approved");
+  // Use approval_requests table for new requests; fall back to legacy purchaseRequests JSON for old records
+  const pendingRequests = [
+    ...approvalRequests.filter(p => p.status === "pending" || p.status === "held"),
+    ...purchaseRequests.filter(p => purchaseReqStatus(p) === "pending"),
+  ];
+  const approvedAwaitingPurchase = [
+    ...approvalRequests.filter(p => p.status === "approved" || p.status === "auto_approved"),
+    ...purchaseRequests.filter(p => purchaseReqStatus(p) === "approved"),
+  ];
 
   return (
     <div>
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
-      {rejectingPR && (
-        <RejectReasonModal title="Reject Purchase Request" onSave={(reason) => quickReject(rejectingPR, reason)} onCancel={() => setRejectingPR(null)} />
-      )}
       {convertingPR && (
         <PurchaseConvertModal request={convertingPR} onSave={(file) => convertToReceipt(convertingPR, file)} onCancel={() => setConvertingPR(null)} saving={saving} />
       )}
@@ -4190,26 +4307,82 @@ function ReceiptSection({ job, onUpdate, user }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
             💰 Pending Purchase Approval ({pendingRequests.length})
           </div>
-          {pendingRequests.map(req => (
-            <div key={req.id} style={{ ...S.card, borderLeft: "4px solid #B45309" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{req.vendor}</div>
-                  {showDollars && <div style={{ fontSize: 16, fontWeight: 800, color: "#B45309", marginTop: 2 }}>${parseFloat(req.amount).toFixed(2)}</div>}
-                  {req.note && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 3 }}>{req.note}</div>}
-                  <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 4 }}>Requested by {req.requestedBy}</div>
+          {pendingRequests.map(req => {
+            const pri = PR_PRIORITY_META[req.priority] || PR_PRIORITY_META.medium;
+            const isNewStyle = !!req.brandon_vote !== undefined && req.job_id !== undefined; // from approval_requests table
+            const myVoteField = user?.name === "Brandon" ? "brandon_vote" : "erik_vote";
+            const myVote = req[myVoteField];
+            const alreadyVoted = !!myVote;
+            const isOnHold = req.status === "held";
+
+            return (
+              <div key={req.id} style={{ ...S.card, borderLeft: `4px solid ${isOnHold ? "#7C3AED" : pri.color}`, background: isOnHold ? "#F5F3FF" : pri.bg }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{req.vendor || req.description}</div>
+                    {showDollars && <div style={{ fontSize: 15, fontWeight: 800, color: pri.color, marginTop: 2 }}>${parseFloat(req.amount).toFixed(2)}</div>}
+                    {req.note && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 3 }}>{req.note}</div>}
+                    <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 4 }}>
+                      Requested by {req.requested_by || req.requestedBy}
+                    </div>
+                    {req.auto_approve_at && (
+                      <div style={{ fontSize: 10, color: pri.color, marginTop: 2, fontWeight: 600 }}>
+                        ⏱️ Auto-approves in {brFmtCountdown(req.auto_approve_at)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: pri.color+"22", color: pri.color, border: `1px solid ${pri.border}` }}>{pri.label}</span>
+                    {isOnHold && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: "#7C3AED22", color: "#7C3AED", border: "1px solid #C4B5FD" }}>⏸️ On Hold</span>}
+                  </div>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: PR_STATUS_META.pending.bg, color: PR_STATUS_META.pending.color, border: `1px solid ${PR_STATUS_META.pending.border}` }}>{PR_STATUS_META.pending.label}</span>
+
+                {/* Dual-owner vote status (for approval_requests table entries) */}
+                {req.brandon_vote !== undefined && (
+                  <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                    {[{ name:"Brandon", vote:req.brandon_vote },{ name:"Erik", vote:req.erik_vote }].map(({ name, vote }) => {
+                      const icon = !vote?"⏳":vote==="approved"?"✅":vote==="held"?"⏸️":"✕";
+                      const col  = !vote?"#64748b":vote==="approved"?"#15803D":vote==="held"?"#7C3AED":"#DC2626";
+                      return <span key={name} style={{ fontSize:10, fontWeight:700, color:col, background:col+"15", borderRadius:6, padding:"2px 7px", border:`1px solid ${col}33` }}>{icon} {name}</span>;
+                    })}
+                  </div>
+                )}
+
+                {/* Actions for owners who haven't voted yet */}
+                {isOwner && !alreadyVoted && holdingPR?.id !== req.id && rejectingPR?.id !== req.id && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                    <button onClick={() => quickVote(req, "approved", null)} style={{ flex:1, fontSize:11, fontWeight:700, padding:"7px 0", borderRadius:7, border:"none", background:"#16A34A", color:"#fff", cursor:"pointer" }}>✅ Approve</button>
+                    <button onClick={() => setHoldingPR(req)} style={{ flex:1, fontSize:11, fontWeight:700, padding:"7px 0", borderRadius:7, border:"none", background:"#7C3AED", color:"#fff", cursor:"pointer" }}>⏸️ Hold</button>
+                    <button onClick={() => setRejectingPR(req)} style={{ fontSize:11, fontWeight:600, padding:"7px 10px", borderRadius:7, border:`1px solid ${BRAND.border}`, background:"none", color:"#DC2626", cursor:"pointer" }}>✕ Object</button>
+                  </div>
+                )}
+                {isOwner && alreadyVoted && (
+                  <div style={{ fontSize:11, color:"#64748b", fontStyle:"italic", marginTop:6 }}>You voted <strong>{myVote}</strong>.</div>
+                )}
+                {/* Hold note input */}
+                {holdingPR?.id === req.id && (
+                  <div style={{ marginTop:10 }}>
+                    <textarea placeholder="Reason for hold (optional)…" value={holdingPR._note||""} onChange={e => setHoldingPR(h=>({...h, _note:e.target.value}))} rows={2} style={{ width:"100%", padding:"8px 10px", borderRadius:8, fontSize:12, border:"1px solid #C4B5FD", background:"#F5F3FF", color:"#1e293b", resize:"vertical", boxSizing:"border-box" }} />
+                    <div style={{ display:"flex", gap:8, marginTop:6 }}>
+                      <button onClick={() => { quickVote(req,"held",holdingPR._note||""); setHoldingPR(null); }} style={{ flex:1, padding:"7px 0", borderRadius:7, fontSize:12, fontWeight:700, background:"#7C3AED", border:"none", color:"#fff", cursor:"pointer" }}>Confirm Hold</button>
+                      <button onClick={() => setHoldingPR(null)} style={{ padding:"7px 12px", borderRadius:7, fontSize:12, background:"transparent", border:`1px solid ${BRAND.border}`, color:BRAND.muted, cursor:"pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {/* Reject note input */}
+                {rejectingPR?.id === req.id && (
+                  <div style={{ marginTop:10 }}>
+                    <textarea placeholder="Reason for objecting (required)…" value={rejectingPR._note||""} onChange={e => setRejectingPR(r=>({...r, _note:e.target.value}))} rows={2} style={{ width:"100%", padding:"8px 10px", borderRadius:8, fontSize:12, border:"1px solid #FCA5A5", background:"#FEF2F2", color:"#1e293b", resize:"vertical", boxSizing:"border-box" }} />
+                    <div style={{ display:"flex", gap:8, marginTop:6 }}>
+                      <button onClick={() => { if(!(rejectingPR._note||"").trim()){alert("Please add a reason.");return;} quickVote(req,"rejected",rejectingPR._note); setRejectingPR(null); }} style={{ flex:1, padding:"7px 0", borderRadius:7, fontSize:12, fontWeight:700, background:"#DC2626", border:"none", color:"#fff", cursor:"pointer" }}>Confirm Object</button>
+                      <button onClick={() => setRejectingPR(null)} style={{ padding:"7px 12px", borderRadius:7, fontSize:12, background:"transparent", border:`1px solid ${BRAND.border}`, color:BRAND.muted, cursor:"pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {!isOwner && <div style={{ fontSize: 11, color: BRAND.muted, fontStyle: "italic", marginTop: 8 }}>Waiting on Erik &amp; Brandon — do not purchase yet.</div>}
               </div>
-              {isAdmin && (
-                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  <button onClick={() => quickApprove(req)} style={{ flex: 1, fontSize: 11, fontWeight: 700, padding: "7px 0", borderRadius: 7, border: "none", background: "#16A34A", color: "#fff", cursor: "pointer" }}>✓ Approve Purchase</button>
-                  <button onClick={() => setRejectingPR(req)} style={{ fontSize: 11, fontWeight: 600, padding: "7px 12px", borderRadius: 7, border: `1px solid ${BRAND.border}`, background: "none", color: "#DC2626", cursor: "pointer" }}>Reject</button>
-                </div>
-              )}
-              {!isAdmin && <div style={{ fontSize: 11, color: BRAND.muted, fontStyle: "italic", marginTop: 8 }}>Waiting on Brandon, Erik, or Matt — do not purchase yet.</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -4257,7 +4430,23 @@ function ReceiptSection({ job, onUpdate, user }) {
             <div style={{ marginTop: 10, background: "#FFF9EC", border: "1px solid #FDE68A", borderRadius: 9, padding: "10px 12px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E" }}>💰 Over ${LARGE_PURCHASE_THRESHOLD} — Approval Required</div>
               <div style={{ fontSize: 11, color: "#78350F", marginTop: 3, lineHeight: 1.4 }}>
-                This will send a request to Brandon, Erik, and Matt instead of saving a receipt. Don't make the purchase until it's approved — you'll get notified and can add the receipt once it's bought.
+                This sends an approval request to <strong>Erik &amp; Brandon</strong>. Don't buy until approved — you'll be notified.
+              </div>
+              {/* Priority selector */}
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#92400E", marginBottom: 5 }}>Priority / Urgency</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {Object.entries(PR_PRIORITY_META).map(([key, meta]) => (
+                    <button key={key} onClick={() => setF("priority", key)} style={{
+                      flex: 1, padding: "7px 4px", borderRadius: 8, fontSize: 10, fontWeight: 700,
+                      border: `2px solid ${form.priority === key ? meta.color : BRAND.border}`,
+                      background: form.priority === key ? meta.color + "22" : BRAND.white,
+                      color: form.priority === key ? meta.color : BRAND.muted, cursor: "pointer", lineHeight: 1.3,
+                    }}>
+                      {meta.label}<br/><span style={{ fontSize: 9, fontWeight: 400 }}>{meta.desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -4400,10 +4589,18 @@ function PurchaseRequestSentModal({ request, onClose }) {
           <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>Approval Request Sent!</div>
         </div>
 
-        <div style={{ background: "#FFF9EC", border: "1px solid #FDE68A", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>{request.vendor} — ${parseFloat(request.amount).toFixed(2)}</div>
-          <div style={{ fontSize: 12, color: "#78350F", marginTop: 4 }}>Brandon, Erik, and Matt have been notified and need to approve this purchase.</div>
-        </div>
+        {(() => {
+          const pri = PR_PRIORITY_META[request.priority] || PR_PRIORITY_META.medium;
+          return (
+            <div style={{ background: pri.bg, border: `1px solid ${pri.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: pri.color }}>{request.vendor} — ${parseFloat(request.amount).toFixed(2)}</div>
+                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:99, background:pri.color+"22", color:pri.color, border:`1px solid ${pri.border}` }}>{pri.label}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#78350F", marginTop: 4 }}>Erik &amp; Brandon have been notified. {pri.desc} if neither objects.</div>
+            </div>
+          );
+        })()}
 
         <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
           <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#DC2626", color: "#fff", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</div>
@@ -5600,7 +5797,7 @@ async function rejectChangeOrderAsCompany(job, orderId, reason, approverName) {
 // Any purchase over this amount requires sign-off from Brandon, Erik, or Matt
 // BEFORE the purchase is made. Once approved, the requester converts the
 // approved request into an actual receipt with the real purchase + photo.
-const LARGE_PURCHASE_THRESHOLD = 300;
+const LARGE_PURCHASE_THRESHOLD = 200;
 
 function purchaseReqStatus(p) {
   return p.status || "pending"; // pending | approved | rejected | purchased
@@ -9683,202 +9880,7 @@ async function deletePtoEvent(id) {
   await sbFetch(`pto_events?id=eq.${id}`, { method: "DELETE" });
 }
 
-// ─── Schedule Job Button & Form ───────────────────────────────────────────────
-// Appears in the Calendar Jobs view when a day is selected.
-// Lets admins pick any existing job and assign it to that date.
-function ScheduleJobButton({ jobs, selectedDate, user, onCheckConflict, onScheduled }) {
-  const [open, setOpen] = useState(false);
-  const [jobId, setJobId] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState(null);
-  const [conflictPending, setConflictPending] = useState(false);
-
-  // Jobs that are not yet Done/Cancelled and don't already start on this date
-  const schedulable = (jobs || []).filter(j =>
-    !["Done","Cancelled"].includes(j.status) &&
-    (j.startDate || j.scheduledDate) !== selectedDate
-  );
-
-  async function handleSave() {
-    if (!jobId) { setErr("Please pick a job."); return; }
-    setSaving(true);
-    setErr(null);
-    try {
-      const job = schedulable.find(j => j.id === jobId);
-
-      // Run the conflict check — if it finds a conflict it creates a schedule_conflict
-      // record, notifies the other owner, and returns true. We block the save and
-      // show the pending state so the user knows to wait for authorization.
-      if (onCheckConflict) {
-        const hasConflict = await onCheckConflict(jobId, selectedDate, job?.customerName);
-        if (hasConflict) {
-          setConflictPending(true);
-          setSaving(false);
-          return; // Don't save yet — wait for the other owner to authorize
-        }
-      }
-
-      const patch = { scheduledDate: selectedDate, startDate: selectedDate, status: "Scheduled" };
-      if (endDate) patch.completedDate = endDate;
-      await sbFetch(`jobs?id=eq.${jobId}`, {
-        method: "PATCH",
-        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
-        body: JSON.stringify(patch),
-      });
-      setOpen(false);
-      setJobId("");
-      setEndDate("");
-      setConflictPending(false);
-      onScheduled?.();
-    } catch(e) {
-      setErr("Save failed. Please try again.");
-    }
-    setSaving(false);
-  }
-
-  // Force-save after conflict was authorized (or user overrides)
-  async function handleForceSave() {
-    setSaving(true);
-    setErr(null);
-    try {
-      const patch = { scheduledDate: selectedDate, startDate: selectedDate, status: "Scheduled" };
-      if (endDate) patch.completedDate = endDate;
-      await sbFetch(`jobs?id=eq.${jobId}`, {
-        method: "PATCH",
-        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
-        body: JSON.stringify(patch),
-      });
-      setOpen(false);
-      setJobId("");
-      setEndDate("");
-      setConflictPending(false);
-      onScheduled?.();
-    } catch(e) {
-      setErr("Save failed. Please try again.");
-    }
-    setSaving(false);
-  }
-
-  const selectedJob = schedulable.find(j => j.id === jobId);
-
-  return (
-    <>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          background: open ? BRAND.muted : BRAND.navy,
-          border: "none", borderRadius: 8,
-          color: "#BFD1EC", fontWeight: 700, fontSize: 12,
-          padding: "6px 12px", cursor: "pointer", flexShrink: 0,
-        }}
-      >
-        {open ? "Cancel" : "+ Schedule Job"}
-      </button>
-
-      {open && (
-        <div style={{ ...S.card, borderLeft: `4px solid ${BRAND.navy}`, marginBottom: 10, padding: "12px 14px" }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: BRAND.navy, marginBottom: 4 }}>
-            Schedule a Job on {selectedDate}
-          </div>
-          <div style={{ fontSize: 11, color: BRAND.muted, marginBottom: 12 }}>
-            Pick a job and it will be set to start on this date.
-          </div>
-
-          <label style={S.lbl}>Job *</label>
-          <select
-            style={{ ...S.input, marginBottom: 10 }}
-            value={jobId}
-            onChange={e => setJobId(e.target.value)}
-          >
-            <option value="">Select job…</option>
-            {schedulable.map(j => (
-              <option key={j.id} value={j.id}>
-                {j.customerName} — {j.id} ({j.status})
-              </option>
-            ))}
-          </select>
-
-          {selectedJob && (
-            <div style={{ background: "#EFF6FF", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy }}>{selectedJob.customerName}</div>
-              {selectedJob.address && <div style={{ fontSize: 11, color: BRAND.muted }}>{selectedJob.address}</div>}
-              <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 2 }}>
-                Current status: <strong>{selectedJob.status}</strong>
-                {(selectedJob.startDate || selectedJob.scheduledDate)
-                  ? ` · Currently scheduled: ${fmtDate(selectedJob.startDate || selectedJob.scheduledDate)}`
-                  : " · Not yet scheduled"}
-              </div>
-            </div>
-          )}
-
-          <label style={S.lbl}>End / Completion Date (optional)</label>
-          <input
-            type="date"
-            style={{ ...S.input, marginBottom: 10 }}
-            value={endDate}
-            min={selectedDate}
-            onChange={e => setEndDate(e.target.value)}
-          />
-
-          {err && <div style={{ color: "#DC2626", fontSize: 12, marginBottom: 8 }}>{err}</div>}
-
-          {/* Conflict pending state */}
-          {conflictPending && (
-            <div style={{ background: "#FFF9EC", borderRadius: 10, padding: "12px 14px", border: "2px solid #FDE68A", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>
-                ⚠️ Schedule Conflict Detected
-              </div>
-              <div style={{ fontSize: 12, color: "#78350F", marginBottom: 10 }}>
-                This date is too close to an existing job. The other owner has been notified and has 4 hours to authorize or propose a new date.
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={handleForceSave}
-                  disabled={saving}
-                  style={{ flex: 1, padding: "8px 0", borderRadius: 8, background: "#92400E", border: "none", color: "#FDE68A", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
-                >
-                  {saving ? "…" : "Schedule Anyway"}
-                </button>
-                <button
-                  onClick={() => { setConflictPending(false); setOpen(false); setJobId(""); setEndDate(""); }}
-                  style={{ flex: 1, padding: "8px 0", borderRadius: 8, background: "transparent", border: "1.5px solid #FCA5A5", color: "#92400E", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
-                >
-                  Wait for Authorization
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!conflictPending && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={handleSave}
-                disabled={!jobId || saving}
-                style={{
-                  flex: 1, padding: "10px 0", borderRadius: 10,
-                  background: jobId && !saving ? BRAND.navy : "rgba(27,58,107,0.3)",
-                  border: "none", color: "#BFD1EC", fontWeight: 700,
-                  fontSize: 14, cursor: jobId && !saving ? "pointer" : "not-allowed",
-                }}
-              >
-                {saving ? "Checking…" : "✅ Schedule Job"}
-              </button>
-              <button
-                onClick={() => { setOpen(false); setJobId(""); setEndDate(""); setErr(null); }}
-                style={{ padding: "10px 14px", borderRadius: 10, background: "transparent", border: `1.5px solid ${BRAND.border}`, color: BRAND.muted, cursor: "pointer", fontSize: 13, fontWeight: 700 }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
-
-function CalendarView({ jobs, user, onCheckConflict }) {
+function CalendarView({ jobs, user }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -10067,19 +10069,8 @@ function CalendarView({ jobs, user, onCheckConflict }) {
       {view === "jobs" && <>
         {sel && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: BRAND.navy }}>
-                {monthName.split(" ")[0]} {sel} — {selJobs.length} job{selJobs.length !== 1 ? "s" : ""}
-              </div>
-              {canAdmin(user) && (
-                <ScheduleJobButton
-                  jobs={jobs}
-                  selectedDate={key(sel)}
-                  user={user}
-                  onCheckConflict={onCheckConflict}
-                  onScheduled={() => { setSel(null); window.dispatchEvent(new CustomEvent("sh-reload-jobs")); }}
-                />
-              )}
+            <div style={{ fontSize: 13, fontWeight: 800, color: BRAND.navy, marginBottom: 8 }}>
+              {monthName.split(" ")[0]} {sel} — {selJobs.length} job{selJobs.length !== 1 ? "s" : ""}
             </div>
             {selJobs.length === 0
               ? <div style={{ color: BRAND.muted, fontSize: 13, padding: "8px 0" }}>No jobs on this day.</div>
@@ -11949,12 +11940,17 @@ function StandaloneReceiptsTab({ user }) {
   const [lightbox, setLightbox] = useState(null);
   const [toast, setToast] = useState(null);
   const [filterCat, setFilterCat] = useState("All");
-  const blank = { vendor: "", amount: "", category: "", note: "", travelHours: "", billable: false, photoUrl: "", paidBy: "company" };
+  const blank = { vendor: "", amount: "", category: "", note: "", travelHours: "", billable: false, photoUrl: "", paidBy: "company", priority: "medium" };
   const [form, setForm] = useState(blank);
   const [editForm, setEditForm] = useState({});
   const [photoFile, setPhotoFile] = useState(null);
   const [showScanStandalone, setShowScanStandalone] = useState(false);
+  const [approvalRequests, setApprovalRequests] = useState([]); // $200+ requests from approval_requests table
+  const [justSubmittedPR, setJustSubmittedPR] = useState(null);
+  const [holdingPR, setHoldingPR] = useState(null);
+  const [rejectingPR, setRejectingPR] = useState(null);
   const fileRef = useRef();
+  const isOwner = BR_CO_OWNERS.includes(user?.name);
 
   function handleStandaloneScan(data) {
     if (data.vendor)   setF('vendor',   data.vendor);
@@ -11970,16 +11966,100 @@ function StandaloneReceiptsTab({ user }) {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  async function loadApprovals() {
+    try {
+      // Show all pending/held requests with no job (standalone) or all if owner
+      const query = isOwner
+        ? `approval_requests?type=eq.purchase&status=in.(pending,held,approved,auto_approved)&job_id=is.null&order=requested_at.desc`
+        : `approval_requests?type=eq.purchase&status=in.(pending,held,approved,auto_approved)&job_id=is.null&requested_by=eq.${encodeURIComponent(user.name)}&order=requested_at.desc`;
+      const rows = await sbFetch(query, { headers: SB_HEADERS });
+      setApprovalRequests(rows || []);
+    } catch {}
+  }
+
+  useEffect(() => { load(); loadApprovals(); }, []);
 
   function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function setEF(k, v) { setEditForm(f => ({ ...f, [k]: v })); }
 
   function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); }
 
+  const isLargePurchaseForm = parseFloat(form.amount || 0) > LARGE_PURCHASE_THRESHOLD;
+
+  async function castVote(req, vote, voteNote) {
+    const isB = user.name === "Brandon";
+    const voteField = isB ? "brandon_vote" : "erik_vote";
+    const noteField = isB ? "brandon_vote_note" : "erik_vote_note";
+    const atField   = isB ? "brandon_voted_at"  : "erik_voted_at";
+    const otherVote = isB ? req.erik_vote : req.brandon_vote;
+    const otherName = isB ? "Erik" : "Brandon";
+    const now = new Date().toISOString();
+    let newStatus = "pending";
+    if (vote === "rejected") newStatus = "rejected";
+    else if (vote === "approved" && otherVote === "approved") newStatus = "approved";
+    else if (vote === "held") newStatus = "held";
+    const patch = { [voteField]: vote, [noteField]: voteNote||null, [atField]: now };
+    if (newStatus !== "pending") { patch.status = newStatus; patch.reviewed_by = user.name; patch.reviewed_at = now; }
+    try {
+      await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(patch) });
+      if (newStatus === "approved") {
+        await pushToUser(req.requested_by, { title:`✅ Purchase Approved: $${parseFloat(req.amount).toFixed(2)}`, body:`Both Erik & Brandon approved. You're good to buy.`, tag:"purchase-approved" });
+        await pushToUser(otherName, { title:`✅ Purchase Fully Approved`, body:`${user.name} also approved ${req.requested_by}'s purchase.`, tag:"purchase-approved" });
+      } else if (newStatus === "rejected") {
+        await pushToUser(req.requested_by, { title:`✕ Purchase Objected`, body:`${user.name} objected.${voteNote?" Reason: "+voteNote:""}`, tag:"purchase-rejected" });
+      } else if (newStatus === "held") {
+        await pushToUser(req.requested_by, { title:`⏸️ Purchase On Hold`, body:`${user.name} placed your request on hold.${voteNote?" Note: "+voteNote:""}`, tag:"purchase-held" });
+      } else if (vote === "approved") {
+        await pushToUser(otherName, { title:`💰 Your Vote Needed: $${parseFloat(req.amount).toFixed(2)}`, body:`${user.name} approved — waiting on you.`, tag:"purchase-request" });
+      }
+      setApprovalRequests(prev => prev.map(r => r.id === req.id ? { ...r, [voteField]: vote, [noteField]: voteNote||null, [atField]: now, status: newStatus !== "pending" ? newStatus : r.status } : r));
+      setHoldingPR(null); setRejectingPR(null);
+      showToast(vote==="approved"?"Approved!":vote==="held"?"On hold":vote==="rejected"?"Objected":"Done");
+    } catch { showToast("Could not save", false); }
+  }
+
   async function add() {
     if (!form.vendor || !form.amount) return;
     setSaving(true);
+
+    if (isLargePurchaseForm) {
+      // Submit to approval_requests table instead of standalone_receipts
+      const now = new Date();
+      const priority = form.priority || "medium";
+      const windowMs = PR_PRIORITY_WINDOWS[priority] || PR_PRIORITY_WINDOWS.medium;
+      const priMeta  = PR_PRIORITY_META[priority]   || PR_PRIORITY_META.medium;
+      const record = {
+        id: `apr-${Date.now()}`, type: "purchase",
+        job_id: null, job_customer: null, job_address: null,
+        requested_by: user.name, requested_at: now.toISOString(),
+        auto_approve_at: new Date(now.getTime() + windowMs).toISOString(),
+        amount: parseFloat(form.amount), vendor: form.vendor || null,
+        description: form.vendor + (form.note ? ` — ${form.note}` : ""),
+        note: form.note || null, priority,
+        category: form.category || null, paid_by: form.paidBy || "company",
+        brandon_vote: null, erik_vote: null,
+        brandon_vote_note: null, erik_vote_note: null,
+        brandon_voted_at: null, erik_voted_at: null,
+        is_emergency: priority === "urgent", status: "pending",
+      };
+      try {
+        await sbFetch("approval_requests", { method:"POST", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(record) });
+        for (const owner of BR_CO_OWNERS) {
+          if (owner === user.name) continue;
+          await pushToUser(owner, {
+            title: `${priority==="urgent"?"🚨 URGENT — ":""}💰 Purchase Request: $${parseFloat(form.amount).toFixed(2)}`,
+            body: `${user.name} wants to buy ${form.vendor||"supplies"}. ${priMeta.desc}.`,
+            url: "/", tag: "purchase-request",
+          });
+        }
+        await loadApprovals();
+        setJustSubmittedPR({ ...record, vendor: form.vendor, amount: form.amount });
+        setForm(blank); setAdding(false);
+      } catch { showToast("Failed to submit request", false); }
+      setSaving(false);
+      return;
+    }
+
     try {
       let photoUrl = "";
       if (photoFile) photoUrl = await uploadPhoto(photoFile);
@@ -12024,6 +12104,7 @@ function StandaloneReceiptsTab({ user }) {
     <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column" }}>
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
       {lightbox && <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />}
+      {justSubmittedPR && <PurchaseRequestSentModal request={justSubmittedPR} onClose={() => setJustSubmittedPR(null)} />}
       <div style={S.scroll}>
 
         {/* Header */}
@@ -12031,12 +12112,90 @@ function StandaloneReceiptsTab({ user }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>🧾 Receipts</div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={load} style={{ background: "none", border: `1.5px solid ${BRAND.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 15 }}>🔄</button>
+            <button onClick={() => { load(); loadApprovals(); }} style={{ background: "none", border: `1.5px solid ${BRAND.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 15 }}>🔄</button>
             <button onClick={() => setAdding(a => !a)} style={{ background: BRAND.navy, border: "none", borderRadius: 8, color: BRAND.white, fontWeight: 700, fontSize: 12, padding: "6px 12px", cursor: "pointer" }}>
               {adding ? "Cancel" : "+ Add"}
             </button>
           </div>
         </div>
+
+        {/* Approval requests (pending/held/approved) */}
+        {approvalRequests.filter(r => r.status !== "rejected" && r.status !== "purchased").length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+              💰 Purchase Approvals
+            </div>
+            {approvalRequests.filter(r => r.status !== "rejected" && r.status !== "purchased").map(req => {
+              const pri = PR_PRIORITY_META[req.priority] || PR_PRIORITY_META.medium;
+              const isApproved = req.status === "approved" || req.status === "auto_approved";
+              const isOnHold   = req.status === "held";
+              const myVoteField = user?.name === "Brandon" ? "brandon_vote" : "erik_vote";
+              const myVote = req[myVoteField];
+              const borderCol = isApproved ? "#16A34A" : isOnHold ? "#7C3AED" : pri.color;
+              const bgCol = isApproved ? "#F0FDF4" : isOnHold ? "#F5F3FF" : pri.bg;
+              return (
+                <div key={req.id} style={{ ...S.card, borderLeft:`4px solid ${borderCol}`, background: bgCol, marginBottom: 8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13, color:BRAND.navy }}>{req.vendor||req.description}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color:borderCol, marginTop:2 }}>${parseFloat(req.amount).toFixed(2)}</div>
+                      {req.note && <div style={{ fontSize:12, color:BRAND.muted, marginTop:2 }}>{req.note}</div>}
+                      <div style={{ fontSize:10, color:BRAND.muted, marginTop:3 }}>By {req.requested_by} · {fmtDate(req.requested_at)}</div>
+                      {!isApproved && req.auto_approve_at && (
+                        <div style={{ fontSize:10, color:pri.color, fontWeight:600, marginTop:2 }}>⏱️ Auto-approves in {brFmtCountdown(req.auto_approve_at)}</div>
+                      )}
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:4, alignItems:"flex-end" }}>
+                      <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:99, background:pri.color+"22", color:pri.color, border:`1px solid ${pri.border}` }}>{pri.label}</span>
+                      {isApproved && <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:99, background:"#D1FAE5", color:"#15803D", border:"1px solid #BBF7D0" }}>✅ Approved</span>}
+                      {isOnHold && <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:99, background:"#EDE9FE", color:"#7C3AED", border:"1px solid #C4B5FD" }}>⏸️ On Hold</span>}
+                    </div>
+                  </div>
+                  {/* Vote status */}
+                  <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                    {[{name:"Brandon",vote:req.brandon_vote},{name:"Erik",vote:req.erik_vote}].map(({name,vote})=>{
+                      const icon=!vote?"⏳":vote==="approved"?"✅":vote==="held"?"⏸️":"✕";
+                      const col=!vote?"#64748b":vote==="approved"?"#15803D":vote==="held"?"#7C3AED":"#DC2626";
+                      return <span key={name} style={{fontSize:10,fontWeight:700,color:col,background:col+"15",borderRadius:6,padding:"2px 7px",border:`1px solid ${col}33`}}>{icon} {name}</span>;
+                    })}
+                  </div>
+                  {/* Owner actions */}
+                  {isOwner && !isApproved && !myVote && holdingPR?.id !== req.id && rejectingPR?.id !== req.id && (
+                    <div style={{ display:"flex", gap:6, marginTop:10 }}>
+                      <button onClick={()=>castVote(req,"approved",null)} style={{flex:1,fontSize:11,fontWeight:700,padding:"7px 0",borderRadius:7,border:"none",background:"#16A34A",color:"#fff",cursor:"pointer"}}>✅ Approve</button>
+                      <button onClick={()=>setHoldingPR(req)} style={{flex:1,fontSize:11,fontWeight:700,padding:"7px 0",borderRadius:7,border:"none",background:"#7C3AED",color:"#fff",cursor:"pointer"}}>⏸️ Hold</button>
+                      <button onClick={()=>setRejectingPR(req)} style={{fontSize:11,fontWeight:600,padding:"7px 10px",borderRadius:7,border:`1px solid ${BRAND.border}`,background:"none",color:"#DC2626",cursor:"pointer"}}>✕ Object</button>
+                    </div>
+                  )}
+                  {isOwner && myVote && !isApproved && <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",marginTop:6}}>You voted <strong>{myVote}</strong>.</div>}
+                  {holdingPR?.id===req.id&&(
+                    <div style={{marginTop:10}}>
+                      <textarea placeholder="Reason for hold (optional)…" value={holdingPR._note||""} onChange={e=>setHoldingPR(h=>({...h,_note:e.target.value}))} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:12,border:"1px solid #C4B5FD",background:"#F5F3FF",resize:"vertical",boxSizing:"border-box"}}/>
+                      <div style={{display:"flex",gap:8,marginTop:6}}>
+                        <button onClick={()=>{castVote(req,"held",holdingPR._note||"");}} style={{flex:1,padding:"7px 0",borderRadius:7,fontSize:12,fontWeight:700,background:"#7C3AED",border:"none",color:"#fff",cursor:"pointer"}}>Confirm Hold</button>
+                        <button onClick={()=>setHoldingPR(null)} style={{padding:"7px 12px",borderRadius:7,fontSize:12,background:"transparent",border:`1px solid ${BRAND.border}`,color:BRAND.muted,cursor:"pointer"}}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  {rejectingPR?.id===req.id&&(
+                    <div style={{marginTop:10}}>
+                      <textarea placeholder="Reason for objecting (required)…" value={rejectingPR._note||""} onChange={e=>setRejectingPR(r=>({...r,_note:e.target.value}))} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:12,border:"1px solid #FCA5A5",background:"#FEF2F2",resize:"vertical",boxSizing:"border-box"}}/>
+                      <div style={{display:"flex",gap:8,marginTop:6}}>
+                        <button onClick={()=>{if(!(rejectingPR._note||"").trim()){alert("Please add a reason.");return;} castVote(req,"rejected",rejectingPR._note);}} style={{flex:1,padding:"7px 0",borderRadius:7,fontSize:12,fontWeight:700,background:"#DC2626",border:"none",color:"#fff",cursor:"pointer"}}>Confirm Object</button>
+                        <button onClick={()=>setRejectingPR(null)} style={{padding:"7px 12px",borderRadius:7,fontSize:12,background:"transparent",border:`1px solid ${BRAND.border}`,color:BRAND.muted,cursor:"pointer"}}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  {isApproved && (
+                    <div style={{ marginTop:10, padding:"8px 10px", background:"#D1FAE5", borderRadius:8, fontSize:12, color:"#15803D", fontWeight:700 }}>
+                      ✅ Approved — you're cleared to make this purchase. Add a receipt after buying.
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
         {!adding && (
           <button onClick={() => setShowScanStandalone(true)} style={{ width: "100%", marginBottom: 12, padding: "14px", background: "linear-gradient(135deg, #7C3AED, #5B21B6)", border: "none", borderRadius: 12, color: BRAND.white, fontWeight: 800, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
             🤖 Scan a Receipt or Invoice with AI
@@ -12080,6 +12239,29 @@ function StandaloneReceiptsTab({ user }) {
                 <input style={{ ...S.input, paddingLeft: 26 }} type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={e => setF("amount", e.target.value)} />
               </div>
             </div>
+            {isLargePurchaseForm && (
+              <div style={{ marginTop:10, background:"#FFF9EC", border:"1px solid #FDE68A", borderRadius:9, padding:"10px 12px" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#92400E" }}>💰 Over ${LARGE_PURCHASE_THRESHOLD} — Approval Required</div>
+                <div style={{ fontSize:11, color:"#78350F", marginTop:3, lineHeight:1.4 }}>
+                  This sends an approval request to <strong>Erik &amp; Brandon</strong>. Don't buy until approved.
+                </div>
+                <div style={{ marginTop:10 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:"#92400E", marginBottom:5 }}>Priority / Urgency</div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {Object.entries(PR_PRIORITY_META).map(([key, meta]) => (
+                      <button key={key} onClick={() => setF("priority", key)} style={{
+                        flex:1, padding:"7px 4px", borderRadius:8, fontSize:10, fontWeight:700,
+                        border:`2px solid ${form.priority===key?meta.color:BRAND.border}`,
+                        background: form.priority===key?meta.color+"22":BRAND.white,
+                        color: form.priority===key?meta.color:BRAND.muted, cursor:"pointer", lineHeight:1.3,
+                      }}>
+                        {meta.label}<br/><span style={{fontSize:9,fontWeight:400}}>{meta.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             <div style={{ marginTop: 12 }}>
               <label style={S.lbl}>Category</label>
               <select style={{ ...S.input, appearance: "none" }} value={form.category} onChange={e => setF("category", e.target.value)}>
@@ -12127,8 +12309,8 @@ function StandaloneReceiptsTab({ user }) {
                 <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => setPhotoFile(e.target.files?.[0] || null)} />
               </label>
             </div>
-            <button style={{ ...S.btn("primary"), opacity: (form.vendor && form.amount && !saving) ? 1 : 0.4, marginTop: 12 }} onClick={add} disabled={!form.vendor || !form.amount || saving}>
-              {saving ? "Saving…" : "Save Receipt"}
+            <button style={{ ...S.btn("primary"), opacity: (form.vendor && form.amount && !saving) ? 1 : 0.4, marginTop: 12, background: isLargePurchaseForm ? "#B45309" : undefined }} onClick={add} disabled={!form.vendor || !form.amount || saving}>
+              {saving ? "Saving…" : isLargePurchaseForm ? "📨 Request Approval" : "Save Receipt"}
             </button>
           </div>
         )}
@@ -18044,42 +18226,63 @@ function MyTasksTab({ jobs, user, onRefresh }) {
     setCoBusyId(null);
   }
 
-  // Purchase requests awaiting THIS admin's approval — Brandon/Erik/Matt only
+  // Purchase requests awaiting THIS owner's vote (Erik & Brandon only) — from approval_requests table
   const [rejectingPR, setRejectingPR] = useState(null);
+  const [holdingPR, setHoldingPR] = useState(null);
   const [prBusyId, setPrBusyId] = useState(null);
+  const [liveApprovalRequests, setLiveApprovalRequests] = useState([]);
   const pendingPurchaseApprovals = useMemo(() => {
-    if (!isAdmin) return [];
-    const result = [];
-    jobs.forEach(job => {
-      (job.purchaseRequests || []).forEach(p => {
-        if (purchaseReqStatus(p) === "pending") {
-          result.push({ ...p, jobId: job.id, jobCustomer: job.customerName, jobAddress: job.address });
-        }
-      });
-    });
-    return result;
-  }, [jobs, isAdmin]);
+    if (!BR_CO_OWNERS.includes(user?.name)) return [];
+    const myVoteField = user.name === "Brandon" ? "brandon_vote" : "erik_vote";
+    return liveApprovalRequests.filter(r =>
+      r.type === "purchase" && (r.status === "pending" || r.status === "held") &&
+      r.requested_by !== user.name && !r[myVoteField]
+    );
+  }, [liveApprovalRequests, user?.name]);
 
-  async function approvePR(req) {
-    setPrBusyId(req.id);
-    try {
-      const job = jobs.find(j => j.id === req.jobId);
-      if (job) await approvePurchaseRequest(job, req.id, user.name);
-      await onRefresh();
-      showToast("Purchase approved — they can buy it now!");
-    } catch (e) {
-      showToast("Approval failed: " + (e?.message?.slice(0,60) || ""), false);
+  useEffect(() => {
+    if (!BR_CO_OWNERS.includes(user?.name)) return;
+    async function fetchApprovals() {
+      try {
+        const rows = await sbFetch(`approval_requests?status=in.(pending,held)&type=eq.purchase&order=requested_at.asc`, { headers: SB_HEADERS });
+        setLiveApprovalRequests(rows || []);
+      } catch {}
     }
-    setPrBusyId(null);
-  }
-  async function rejectPR(req, reason) {
+    fetchApprovals();
+    const iv = setInterval(fetchApprovals, 2 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [user?.name]);
+
+  async function castTaskPRVote(req, vote, voteNote) {
     setPrBusyId(req.id);
     try {
-      const job = jobs.find(j => j.id === req.jobId);
-      if (job) await rejectPurchaseRequest(job, req.id, reason, user.name);
-      await onRefresh();
-      setRejectingPR(null);
-      showToast("Purchase rejected", false);
+      const isB = user.name === "Brandon";
+      const voteField = isB ? "brandon_vote" : "erik_vote";
+      const noteField = isB ? "brandon_vote_note" : "erik_vote_note";
+      const atField   = isB ? "brandon_voted_at"  : "erik_voted_at";
+      const otherVote = isB ? req.erik_vote : req.brandon_vote;
+      const otherName = isB ? "Erik" : "Brandon";
+      const now = new Date().toISOString();
+      let newStatus = "pending";
+      if (vote === "rejected") newStatus = "rejected";
+      else if (vote === "approved" && otherVote === "approved") newStatus = "approved";
+      else if (vote === "held") newStatus = "held";
+      const patch = { [voteField]: vote, [noteField]: voteNote||null, [atField]: now };
+      if (newStatus !== "pending") { patch.status = newStatus; patch.reviewed_by = user.name; patch.reviewed_at = now; }
+      await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(patch) });
+      if (newStatus === "approved") {
+        await pushToUser(req.requested_by, { title:`✅ Purchase Approved: $${parseFloat(req.amount).toFixed(2)}`, body:`Both Erik & Brandon approved. You're good to buy.`, tag:"purchase-approved" });
+        await pushToUser(otherName, { title:`✅ Purchase Fully Approved`, body:`${user.name} also approved.`, tag:"purchase-approved" });
+      } else if (newStatus === "rejected") {
+        await pushToUser(req.requested_by, { title:`✕ Purchase Objected`, body:`${user.name} objected.${voteNote?" Reason: "+voteNote:""}`, tag:"purchase-rejected" });
+      } else if (newStatus === "held") {
+        await pushToUser(req.requested_by, { title:`⏸️ Purchase On Hold`, body:`${user.name} placed on hold.${voteNote?" Note: "+voteNote:""}`, tag:"purchase-held" });
+      } else if (vote === "approved") {
+        await pushToUser(otherName, { title:`💰 Your Vote Needed`, body:`${user.name} approved — waiting on you.`, tag:"purchase-request" });
+      }
+      setLiveApprovalRequests(prev => prev.filter(r => r.id !== req.id));
+      setRejectingPR(null); setHoldingPR(null);
+      showToast(vote==="approved"?"Vote recorded — approved!":vote==="held"?"Put on hold":vote==="rejected"?"Objection recorded":"Done");
     } catch (e) {
       showToast("Could not save: " + (e?.message?.slice(0,60) || ""), false);
     }
@@ -18290,13 +18493,6 @@ function MyTasksTab({ jobs, user, onRefresh }) {
           onCancel={() => setRejectingCO(null)}
         />
       )}
-      {rejectingPR && (
-        <RejectReasonModal
-          title="Reject Purchase Request"
-          onSave={(reason) => rejectPR(rejectingPR, reason)}
-          onCancel={() => setRejectingPR(null)}
-        />
-      )}
       {openTask && (
         <TaskDetailModal
           task={openTask}
@@ -18402,28 +18598,69 @@ function MyTasksTab({ jobs, user, onRefresh }) {
               {pendingPurchaseApprovals.length > 0 && (
                 <>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", marginBottom: 8, marginTop: pendingApprovals.length > 0 ? 16 : 4 }}>
-                    💰 Large purchases needing your approval
+                    💰 Purchase approvals needing your vote (Erik &amp; Brandon)
                   </div>
-                  {pendingPurchaseApprovals.map(p => (
-                    <div key={p.id} style={{ ...S.card, borderLeft: "4px solid #B45309" }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{p.jobCustomer}</div>
-                      {p.jobAddress && <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 1 }}>{p.jobAddress}</div>}
-                      <div style={{ fontSize: 13, color: BRAND.text, marginTop: 5, fontWeight: 600 }}>{p.vendor}</div>
-                      {p.note && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>{p.note}</div>}
-                      <div style={{ fontSize: 16, fontWeight: 800, color: "#B45309", marginTop: 4 }}>${parseFloat(p.amount).toFixed(2)}</div>
-                      <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 3 }}>Requested by {p.requestedBy}</div>
-                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                        <button onClick={() => approvePR(p)} disabled={prBusyId === p.id}
-                          style={{ flex: 1, fontSize: 11, fontWeight: 700, padding: "7px 0", borderRadius: 7, border: "none", background: "#16A34A", color: "#fff", cursor: "pointer", opacity: prBusyId === p.id ? 0.6 : 1 }}>
-                          {prBusyId === p.id ? "Approving…" : "✓ Approve Purchase"}
-                        </button>
-                        <button onClick={() => setRejectingPR(p)} disabled={prBusyId === p.id}
-                          style={{ fontSize: 11, fontWeight: 600, padding: "7px 12px", borderRadius: 7, border: `1px solid ${BRAND.border}`, background: "none", color: "#DC2626", cursor: "pointer" }}>
-                          Reject
-                        </button>
+                  {pendingPurchaseApprovals.map(p => {
+                    const pri = PR_PRIORITY_META[p.priority] || PR_PRIORITY_META.medium;
+                    return (
+                      <div key={p.id} style={{ ...S.card, borderLeft: `4px solid ${pri.color}`, background: pri.bg }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                          <div>
+                            <div style={{ fontWeight:700, fontSize:13, color:BRAND.navy }}>{p.job_customer||p.jobCustomer||"(Standalone)"}</div>
+                            {(p.job_address||p.jobAddress) && <div style={{ fontSize:11, color:BRAND.muted, marginTop:1 }}>{p.job_address||p.jobAddress}</div>}
+                            <div style={{ fontSize:13, color:BRAND.text, marginTop:4, fontWeight:600 }}>{p.vendor||p.description}</div>
+                            {p.note && <div style={{ fontSize:12, color:BRAND.muted, marginTop:2 }}>{p.note}</div>}
+                            <div style={{ fontSize:16, fontWeight:800, color:pri.color, marginTop:3 }}>${parseFloat(p.amount).toFixed(2)}</div>
+                            <div style={{ fontSize:10, color:BRAND.muted, marginTop:2 }}>By {p.requested_by||p.requestedBy}</div>
+                            {p.auto_approve_at && <div style={{ fontSize:10, color:pri.color, fontWeight:600, marginTop:1 }}>⏱️ Auto-approves in {brFmtCountdown(p.auto_approve_at)}</div>}
+                          </div>
+                          <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:99, background:pri.color+"22", color:pri.color, border:`1px solid ${pri.border}`, flexShrink:0 }}>{pri.label}</span>
+                        </div>
+                        {/* Vote chips */}
+                        <div style={{ display:"flex", gap:5, marginTop:8 }}>
+                          {[{name:"Brandon",vote:p.brandon_vote},{name:"Erik",vote:p.erik_vote}].map(({name,vote})=>{
+                            const icon=!vote?"⏳":vote==="approved"?"✅":vote==="held"?"⏸️":"✕";
+                            const col=!vote?"#64748b":vote==="approved"?"#15803D":vote==="held"?"#7C3AED":"#DC2626";
+                            return <span key={name} style={{fontSize:10,fontWeight:700,color:col,background:col+"15",borderRadius:6,padding:"2px 7px",border:`1px solid ${col}33`}}>{icon} {name}</span>;
+                          })}
+                        </div>
+                        {holdingPR?.id !== p.id && rejectingPR?.id !== p.id && (
+                          <div style={{ display:"flex", gap:6, marginTop:10 }}>
+                            <button onClick={() => castTaskPRVote(p,"approved",null)} disabled={prBusyId===p.id}
+                              style={{ flex:1, fontSize:11, fontWeight:700, padding:"7px 0", borderRadius:7, border:"none", background:"#16A34A", color:"#fff", cursor:"pointer", opacity:prBusyId===p.id?0.6:1 }}>
+                              {prBusyId===p.id?"…":"✅ Approve"}
+                            </button>
+                            <button onClick={() => setHoldingPR(p)} disabled={prBusyId===p.id}
+                              style={{ flex:1, fontSize:11, fontWeight:700, padding:"7px 0", borderRadius:7, border:"none", background:"#7C3AED", color:"#fff", cursor:"pointer" }}>
+                              ⏸️ Hold
+                            </button>
+                            <button onClick={() => setRejectingPR(p)} disabled={prBusyId===p.id}
+                              style={{ fontSize:11, fontWeight:600, padding:"7px 10px", borderRadius:7, border:`1px solid ${BRAND.border}`, background:"none", color:"#DC2626", cursor:"pointer" }}>
+                              ✕ Object
+                            </button>
+                          </div>
+                        )}
+                        {holdingPR?.id===p.id&&(
+                          <div style={{marginTop:10}}>
+                            <textarea placeholder="Reason for hold (optional)…" value={holdingPR._note||""} onChange={e=>setHoldingPR(h=>({...h,_note:e.target.value}))} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:12,border:"1px solid #C4B5FD",background:"#F5F3FF",resize:"vertical",boxSizing:"border-box"}}/>
+                            <div style={{display:"flex",gap:8,marginTop:6}}>
+                              <button onClick={()=>castTaskPRVote(p,"held",holdingPR._note||"")} style={{flex:1,padding:"7px 0",borderRadius:7,fontSize:12,fontWeight:700,background:"#7C3AED",border:"none",color:"#fff",cursor:"pointer"}}>Confirm Hold</button>
+                              <button onClick={()=>setHoldingPR(null)} style={{padding:"7px 12px",borderRadius:7,fontSize:12,background:"transparent",border:`1px solid ${BRAND.border}`,color:BRAND.muted,cursor:"pointer"}}>Cancel</button>
+                            </div>
+                          </div>
+                        )}
+                        {rejectingPR?.id===p.id&&(
+                          <div style={{marginTop:10}}>
+                            <textarea placeholder="Reason for objecting (required)…" value={rejectingPR._note||""} onChange={e=>setRejectingPR(r=>({...r,_note:e.target.value}))} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,fontSize:12,border:"1px solid #FCA5A5",background:"#FEF2F2",resize:"vertical",boxSizing:"border-box"}}/>
+                            <div style={{display:"flex",gap:8,marginTop:6}}>
+                              <button onClick={()=>{if(!(rejectingPR._note||"").trim()){alert("Please add a reason.");return;}castTaskPRVote(p,"rejected",rejectingPR._note);}} style={{flex:1,padding:"7px 0",borderRadius:7,fontSize:12,fontWeight:700,background:"#DC2626",border:"none",color:"#fff",cursor:"pointer"}}>Confirm Object</button>
+                              <button onClick={()=>setRejectingPR(null)} style={{padding:"7px 12px",borderRadius:7,fontSize:12,background:"transparent",border:`1px solid ${BRAND.border}`,color:BRAND.muted,cursor:"pointer"}}>Cancel</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </>
               )}
             </AccordionItem>
@@ -20554,8 +20791,16 @@ export default function App() {
   const brRefreshApprovals = useCallback(async () => {
     if (!user?.name) return;
     try {
-      const rows = await sbFetch(`approval_requests?status=eq.pending&order=requested_at.asc`, { headers: SB_HEADERS });
-      setBrPendingApprovals((rows || []).filter(r => r.requested_by !== user.name));
+      // Fetch both pending and held requests that I haven't objected to
+      const rows = await sbFetch(`approval_requests?status=in.(pending,held)&order=requested_at.asc`, { headers: SB_HEADERS });
+      const myVoteField = user.name === "Brandon" ? "brandon_vote" : "erik_vote";
+      const filtered = (rows || []).filter(r => {
+        if (r.requested_by === user.name) return false; // don't show my own submissions
+        if (!BR_CO_OWNERS.includes(user.name)) return false; // only Erik & Brandon
+        const myVote = r[myVoteField];
+        return !myVote || myVote === "held"; // show if I haven't voted yet, or I put it on hold
+      });
+      setBrPendingApprovals(filtered);
     } catch {}
   }, [user?.name]);
 
@@ -20582,8 +20827,14 @@ export default function App() {
       try {
         const expPurchases = await sbFetch(`approval_requests?status=eq.pending&auto_approve_at=lt.${now}`, { headers: SB_HEADERS });
         for (const req of (expPurchases || [])) {
-          await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify({ status:"auto_approved", reviewed_at: now }) });
-          for (const owner of BR_CO_OWNERS) await pushToUser(owner, { title:`✅ Auto-Approved: ${brFmtMoney(req.amount)}`, body:`${req.requested_by}'s purchase of ${req.description || "supplies"} was auto-approved after 4 hours.`, tag:"purchase-auto-approved" });
+          const priMeta = PR_PRIORITY_META[req.priority] || PR_PRIORITY_META.medium;
+          const hasObjection = req.brandon_vote === "rejected" || req.erik_vote === "rejected";
+          if (hasObjection) continue; // already objected — don't auto-approve
+          await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify({ status:"auto_approved", reviewed_at: now, reviewed_by: "system" }) });
+          const whoApproved = [req.brandon_vote==="approved"?"Brandon":null, req.erik_vote==="approved"?"Erik":null].filter(Boolean);
+          const approvedByMsg = whoApproved.length ? ` (${whoApproved.join(" approved, ")} approved; timer expired for the rest)` : "";
+          await pushToUser(req.requested_by, { title:`✅ Auto-Approved: ${brFmtMoney(req.amount)}`, body:`Your purchase of ${req.description || "supplies"} was auto-approved after the ${priMeta.label} window expired${approvedByMsg}.`, tag:"purchase-auto-approved" });
+          for (const owner of BR_CO_OWNERS) await pushToUser(owner, { title:`✅ Auto-Approved: ${brFmtMoney(req.amount)}`, body:`${req.requested_by}'s ${priMeta.label} purchase was auto-approved — timer expired.`, tag:"purchase-auto-approved" });
         }
         const expConflicts = await sbFetch(`schedule_conflicts?status=eq.pending&auto_authorize_at=lt.${now}`, { headers: SB_HEADERS });
         for (const sc of (expConflicts || [])) {
@@ -20599,27 +20850,106 @@ export default function App() {
     return () => clearInterval(iv);
   }, [user?.name]);
 
-  // Approve a purchase request
+  // Record this owner's vote and recompute aggregate status
+  async function brCastPurchaseVote(req, vote, voteNote) {
+    const now = new Date().toISOString();
+    const isB = user.name === "Brandon";
+    const voteField    = isB ? "brandon_vote"    : "erik_vote";
+    const noteField    = isB ? "brandon_vote_note": "erik_vote_note";
+    const atField      = isB ? "brandon_voted_at" : "erik_voted_at";
+    const otherVote    = isB ? req.erik_vote      : req.brandon_vote;
+    const otherName    = isB ? "Erik"             : "Brandon";
+    const myName       = user.name;
+
+    // Determine new aggregate status after this vote
+    let newStatus = "pending";
+    if (vote === "rejected") {
+      newStatus = "rejected"; // one objection is enough to block
+    } else if (vote === "approved" && otherVote === "approved") {
+      newStatus = "approved"; // both approved
+    } else if (vote === "approved" && !otherVote) {
+      newStatus = "pending";  // waiting on the other owner, auto-approve timer still running
+    } else if (vote === "held") {
+      newStatus = "held";     // on hold — auto-approve timer paused conceptually
+    }
+
+    const patch = { [voteField]: vote, [noteField]: voteNote || null, [atField]: now };
+    if (newStatus !== "pending") {
+      patch.status = newStatus;
+      patch.reviewed_by = myName;
+      patch.reviewed_at = now;
+      if (voteNote) patch.review_note = voteNote;
+    }
+
+    await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(patch) });
+
+    // Notify requester if fully resolved
+    if (newStatus === "approved") {
+      await pushToUser(req.requested_by, { title:`✅ Purchase Approved: ${brFmtMoney(req.amount)}`, body:`Both Brandon & Erik approved your purchase of ${req.description || "supplies"}. You're good to buy.`, tag:"purchase-approved" });
+      // Also notify the other owner that it's resolved
+      if (otherName) await pushToUser(otherName, { title:`✅ Purchase Approved: ${brFmtMoney(req.amount)}`, body:`${myName} also approved — ${req.requested_by}'s purchase is fully approved.`, tag:"purchase-approved" });
+    } else if (newStatus === "rejected") {
+      await pushToUser(req.requested_by, { title:`✕ Purchase Objected: ${brFmtMoney(req.amount)}`, body:`${myName} objected to the purchase of ${req.description || "supplies"}.${voteNote ? " Reason: " + voteNote : ""}`, tag:"purchase-rejected" });
+      if (otherName) await pushToUser(otherName, { title:`✕ Purchase Objected by ${myName}`, body:`${myName} objected to ${req.requested_by}'s purchase of ${req.description||"supplies"}.`, tag:"purchase-rejected" });
+    } else if (newStatus === "held") {
+      await pushToUser(req.requested_by, { title:`⏸️ Purchase On Hold: ${brFmtMoney(req.amount)}`, body:`${myName} put your purchase request on hold.${voteNote ? " Note: " + voteNote : ""}`, tag:"purchase-held" });
+      if (otherName) await pushToUser(otherName, { title:`⏸️ Purchase Held by ${myName}`, body:`${myName} put ${req.requested_by}'s purchase of ${req.description||"supplies"} on hold.`, tag:"purchase-held" });
+    } else {
+      // Partial vote — notify the other owner they still need to decide
+      if (otherName && !otherVote) {
+        await pushToUser(otherName, { title:`💰 Your Vote Needed: ${brFmtMoney(req.amount)}`, body:`${myName} approved — waiting on you to approve, hold, or object ${req.description||"purchase"}.`, tag:"purchase-request" });
+      }
+    }
+    await brRefreshApprovals();
+  }
+
+  // Approve a purchase request (this owner's vote)
   async function brApprovePurchase(req) {
-    await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify({ status:"approved", reviewed_by: user.name, reviewed_at: new Date().toISOString() }) });
-    await pushToUser(req.requested_by, { title:`✅ Purchase Approved: ${brFmtMoney(req.amount)}`, body:`${user.name} approved your purchase of ${req.description || "supplies"}. You're good to buy.`, tag:"purchase-approved" });
-    await brRefreshApprovals();
+    await brCastPurchaseVote(req, "approved", null);
   }
 
-  // Reject a purchase request
+  // Hold a purchase request
+  async function brHoldPurchase(req, note) {
+    await brCastPurchaseVote(req, "held", note);
+  }
+
+  // Object to / reject a purchase request
   async function brRejectPurchase(req, note) {
-    await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify({ status:"rejected", reviewed_by: user.name, reviewed_at: new Date().toISOString(), review_note: note }) });
-    await pushToUser(req.requested_by, { title:`✕ Purchase Objected: ${brFmtMoney(req.amount)}`, body:`${user.name} objected to the purchase of ${req.description || "supplies"}. Reason: ${note}`, tag:"purchase-rejected" });
-    await brRefreshApprovals();
+    await brCastPurchaseVote(req, "rejected", note);
   }
 
-  // Submit a new $200+ purchase approval request
-  async function brSubmitPurchaseRequest({ jobId, jobCustomer, jobAddress, amount, vendor, description, isEmergency, emergencyReason }) {
-    const otherOwner = brGetOtherOwner(user.name);
+  // Submit a new $200+ purchase approval request (dual-owner: both Erik & Brandon notified)
+  async function brSubmitPurchaseRequest({ jobId, jobCustomer, jobAddress, amount, vendor, description, priority, note }) {
     const now = new Date();
-    const record = { id:`apr-${Date.now()}`, type:"purchase", job_id:jobId||null, job_customer:jobCustomer||null, job_address:jobAddress||null, requested_by:user.name, requested_at:now.toISOString(), auto_approve_at:new Date(now.getTime()+BR_APPROVAL_WINDOW_MS).toISOString(), amount:parseFloat(amount), vendor:vendor||null, description:description||null, is_emergency:!!isEmergency, emergency_reason:isEmergency?emergencyReason:null, status:"pending" };
+    const windowMs = PR_PRIORITY_WINDOWS[priority] || PR_PRIORITY_WINDOWS.medium;
+    const priMeta  = PR_PRIORITY_META[priority]   || PR_PRIORITY_META.medium;
+    const record = {
+      id: `apr-${Date.now()}`,
+      type: "purchase",
+      job_id: jobId || null, job_customer: jobCustomer || null, job_address: jobAddress || null,
+      requested_by: user.name, requested_at: now.toISOString(),
+      auto_approve_at: new Date(now.getTime() + windowMs).toISOString(),
+      amount: parseFloat(amount), vendor: vendor || null,
+      description: description || null,
+      note: note || null,
+      priority: priority || "medium",
+      // Per-owner votes: null = not yet voted, "approved" | "held" | "rejected"
+      brandon_vote: null, erik_vote: null,
+      brandon_vote_note: null, erik_vote_note: null,
+      brandon_voted_at: null, erik_voted_at: null,
+      is_emergency: priority === "urgent",
+      status: "pending",
+    };
     await sbFetch("approval_requests", { method:"POST", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(record) });
-    if (otherOwner) await pushToUser(otherOwner, { title:`${isEmergency?"🚨 EMERGENCY — ":""}⏳ Purchase Request: ${brFmtMoney(amount)}`, body:`${user.name} wants to buy ${description||"supplies"} from ${vendor||"a vendor"}. You have 4 hours to approve or object.`, tag:"purchase-request" });
+    // Notify both owners
+    for (const owner of BR_CO_OWNERS) {
+      if (owner === user.name) continue;
+      await pushToUser(owner, {
+        title: `${priority==="urgent"?"🚨 URGENT — ":""}💰 Purchase Request: ${brFmtMoney(amount)}`,
+        body: `${user.name} wants to buy ${description||"supplies"} from ${vendor||"a vendor"}. ${priMeta.desc}.`,
+        tag: "purchase-request",
+      });
+    }
     return record;
   }
 
@@ -20694,13 +21024,8 @@ export default function App() {
   async function handleNotifApprovePurchase(req) {
     setNotifPRBusy(req.id);
     try {
-      const job = jobs.find(j => j.id === req.jobId);
-      if (job) await approvePurchaseRequest(job, req.id, user.name);
-      await loadJobs();
-      setAllNotifs(prev => ({ ...prev, purchaseApprovals: (prev.purchaseApprovals || []).filter(p => p.id !== req.id) }));
-      setLoginNotifs(prev => prev ? { ...prev, purchaseApprovals: (prev.purchaseApprovals || []).filter(p => p.id !== req.id) } : prev);
-      setNotifApprovingPR(null);
-      setNotifCOToast({ msg: "Purchase approved — they can buy it now!", ok: true });
+      await brCastVoteFromNotif(req, "approved", null);
+      setNotifCOToast({ msg: "✅ Approved! Other owner notified.", ok: true });
     } catch (e) {
       setNotifCOToast({ msg: "Approval failed: " + (e?.message?.slice(0,60) || ""), ok: false });
     }
@@ -20710,18 +21035,54 @@ export default function App() {
   async function handleNotifRejectPurchase(req, reason) {
     setNotifPRBusy(req.id);
     try {
-      const job = jobs.find(j => j.id === req.jobId);
-      if (job) await rejectPurchaseRequest(job, req.id, reason, user.name);
-      await loadJobs();
-      setAllNotifs(prev => ({ ...prev, purchaseApprovals: (prev.purchaseApprovals || []).filter(p => p.id !== req.id) }));
-      setLoginNotifs(prev => prev ? { ...prev, purchaseApprovals: (prev.purchaseApprovals || []).filter(p => p.id !== req.id) } : prev);
-      setNotifRejectingPR(null);
-      setNotifCOToast({ msg: "Purchase rejected", ok: false });
+      const mode = req._mode || "object";
+      await brCastVoteFromNotif(req, mode === "hold" ? "held" : "rejected", reason);
+      setNotifCOToast({ msg: mode === "hold" ? "⏸️ Put on hold" : "✕ Objection recorded", ok: mode !== "object" });
     } catch (e) {
       setNotifCOToast({ msg: "Could not save: " + (e?.message?.slice(0,60) || ""), ok: false });
     }
     setNotifPRBusy(null);
+    setNotifRejectingPR(null);
     setTimeout(() => setNotifCOToast(null), 3000);
+  }
+
+  // Cast a vote from the notification panel — updates approval_requests table directly
+  async function brCastVoteFromNotif(req, vote, voteNote) {
+    const isB = user.name === "Brandon";
+    const voteField = isB ? "brandon_vote" : "erik_vote";
+    const noteField = isB ? "brandon_vote_note" : "erik_vote_note";
+    const atField   = isB ? "brandon_voted_at"  : "erik_voted_at";
+    const otherVote = isB ? req.erik_vote : req.brandon_vote;
+    const otherName = isB ? "Erik" : "Brandon";
+    const now = new Date().toISOString();
+    let newStatus = "pending";
+    if (vote === "rejected") newStatus = "rejected";
+    else if (vote === "approved" && otherVote === "approved") newStatus = "approved";
+    else if (vote === "held") newStatus = "held";
+    const patch = { [voteField]: vote, [noteField]: voteNote||null, [atField]: now };
+    if (newStatus !== "pending") { patch.status = newStatus; patch.reviewed_by = user.name; patch.reviewed_at = now; }
+    await sbFetch(`approval_requests?id=eq.${req.id}`, { method:"PATCH", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(patch) });
+    if (newStatus === "approved") {
+      await pushToUser(req.requested_by, { title:`✅ Purchase Approved: $${parseFloat(req.amount).toFixed(2)}`, body:`Both Erik & Brandon approved. You're good to buy.`, tag:"purchase-approved" });
+      if (otherName) await pushToUser(otherName, { title:`✅ Purchase Fully Approved`, body:`${user.name} also approved ${req.requested_by}'s purchase.`, tag:"purchase-approved" });
+    } else if (newStatus === "rejected") {
+      await pushToUser(req.requested_by, { title:`✕ Purchase Objected`, body:`${user.name} objected.${voteNote?" Reason: "+voteNote:""}`, tag:"purchase-rejected" });
+      if (otherName) await pushToUser(otherName, { title:`✕ Objected by ${user.name}`, body:`${user.name} objected to ${req.requested_by}'s purchase.`, tag:"purchase-rejected" });
+    } else if (newStatus === "held") {
+      await pushToUser(req.requested_by, { title:`⏸️ Purchase On Hold`, body:`${user.name} put your request on hold.${voteNote?" Note: "+voteNote:""}`, tag:"purchase-held" });
+    } else if (vote === "approved") {
+      if (otherName) await pushToUser(otherName, { title:`💰 Your Vote Needed: $${parseFloat(req.amount).toFixed(2)}`, body:`${user.name} approved — waiting on you.`, tag:"purchase-request" });
+    }
+    // Remove from notification panel if fully resolved
+    if (newStatus !== "pending") {
+      setAllNotifs(prev => ({ ...prev, purchaseApprovals: (prev.purchaseApprovals||[]).filter(p=>p.id!==req.id) }));
+      setLoginNotifs(prev => prev ? { ...prev, purchaseApprovals: (prev.purchaseApprovals||[]).filter(p=>p.id!==req.id) } : prev);
+    } else {
+      // Update the vote chip inline
+      setAllNotifs(prev => ({ ...prev, purchaseApprovals: (prev.purchaseApprovals||[]).map(p=>p.id===req.id?{...p,[voteField]:vote}:p) }));
+      setLoginNotifs(prev => prev ? { ...prev, purchaseApprovals: (prev.purchaseApprovals||[]).map(p=>p.id===req.id?{...p,[voteField]:vote}:p) } : prev);
+    }
+    await brRefreshApprovals();
   }
 
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -20807,13 +21168,6 @@ export default function App() {
     }
     setLoading(false);
   }, []);
-
-  // Listen for calendar schedule updates so CalendarView can trigger a job reload
-  useEffect(() => {
-    const handler = () => loadJobs();
-    window.addEventListener("sh-reload-jobs", handler);
-    return () => window.removeEventListener("sh-reload-jobs", handler);
-  }, [loadJobs]);
 
   // Builds the full notification set for the bell icon: overdue/upcoming follow-ups,
   // active tasks, and any note where the user was @mentioned — regardless of when
@@ -21001,7 +21355,9 @@ export default function App() {
             <PurchaseApprovalBanner
               pendingForMe={brPendingApprovals}
               onApprove={brApprovePurchase}
+              onHold={brHoldPurchase}
               onReject={brRejectPurchase}
+              currentUser={user?.name}
             />
             <ScheduleConflictModal
               conflicts={brScheduleConflicts}
@@ -21073,7 +21429,7 @@ export default function App() {
         )}
         {notifRejectingPR && (
           <RejectReasonModal
-            title="Reject Purchase Request"
+            title={notifRejectingPR._mode === "hold" ? "⏸️ Hold Purchase Request" : "✕ Object to Purchase"}
             onSave={(reason) => handleNotifRejectPurchase(notifRejectingPR, reason)}
             onCancel={() => setNotifRejectingPR(null)}
           />
@@ -21147,25 +21503,49 @@ export default function App() {
                           <div style={{ fontSize: 11, fontWeight: 800, color: "#B45309", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
                             💰 Purchases Awaiting Your Approval ({data.purchaseApprovals.length})
                           </div>
-                          {data.purchaseApprovals.map((p, i) => (
-                            <div key={p.id || i} style={{ ...S.card, borderLeft: "4px solid #B45309", padding: "10px 12px", marginBottom: 6 }}>
-                              <div onClick={() => { setLoginNotifs(null); setShowNotifPanel(false); setTab("jobs"); }} style={{ cursor: "pointer" }}>
-                                <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{p.jobCustomer}</div>
-                                <div style={{ fontSize: 12, color: BRAND.text, marginTop: 3 }}>{p.vendor}{p.note ? ` — ${p.note.slice(0,80)}` : ""}</div>
-                                <div style={{ fontSize: 14, fontWeight: 800, color: "#B45309", marginTop: 3 }}>${parseFloat(p.amount).toFixed(2)}</div>
+                          {data.purchaseApprovals.map((p, i) => {
+                            const pri = PR_PRIORITY_META[p.priority] || PR_PRIORITY_META.medium;
+                            const myVoteField = user?.name === "Brandon" ? "brandon_vote" : "erik_vote";
+                            const myVote = p[myVoteField];
+                            return (
+                              <div key={p.id || i} style={{ ...S.card, borderLeft: `4px solid ${pri.color}`, background: pri.bg, padding: "10px 12px", marginBottom: 6 }}>
+                                <div onClick={() => { setLoginNotifs(null); setShowNotifPanel(false); setTab("jobs"); }} style={{ cursor: "pointer" }}>
+                                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{p.jobCustomer || "(No job)"}</div>
+                                    <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:99, background:pri.color+"22", color:pri.color }}>{pri.label}</span>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: BRAND.text, marginTop: 2 }}>{p.vendor || p.description}{p.note ? ` — ${p.note.slice(0,60)}` : ""}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: pri.color, marginTop: 2 }}>${parseFloat(p.amount).toFixed(2)}</div>
+                                  <div style={{ fontSize: 10, color: pri.color, marginTop: 1 }}>⏱️ Auto-approves in {brFmtCountdown(p.auto_approve_at)}</div>
+                                </div>
+                                {/* Vote chips */}
+                                <div style={{ display:"flex", gap:5, marginTop:6 }}>
+                                  {[{name:"Brandon",vote:p.brandon_vote},{name:"Erik",vote:p.erik_vote}].map(({name,vote})=>{
+                                    const icon=!vote?"⏳":vote==="approved"?"✅":vote==="held"?"⏸️":"✕";
+                                    const col=!vote?"#64748b":vote==="approved"?"#15803D":vote==="held"?"#7C3AED":"#DC2626";
+                                    return <span key={name} style={{fontSize:10,fontWeight:700,color:col,background:col+"15",borderRadius:6,padding:"2px 6px"}}>{icon} {name}</span>;
+                                  })}
+                                </div>
+                                {!myVote && (
+                                  <div style={{ display: "flex", gap: 5, marginTop: 8 }}>
+                                    <button onClick={() => handleNotifApprovePurchase(p)} disabled={notifPRBusy === p.id}
+                                      style={{ flex: 1, fontSize: 10, fontWeight: 700, padding: "6px 0", borderRadius: 7, border: "none", background: "#16A34A", color: "#fff", cursor: "pointer", opacity: notifPRBusy===p.id?0.6:1 }}>
+                                      {notifPRBusy===p.id?"…":"✅ Approve"}
+                                    </button>
+                                    <button onClick={() => setNotifRejectingPR({...p, _mode:"hold"})} disabled={notifPRBusy===p.id}
+                                      style={{ flex: 1, fontSize: 10, fontWeight: 700, padding: "6px 0", borderRadius: 7, border: "none", background: "#7C3AED", color: "#fff", cursor: "pointer" }}>
+                                      ⏸️ Hold
+                                    </button>
+                                    <button onClick={() => setNotifRejectingPR({...p, _mode:"object"})} disabled={notifPRBusy===p.id}
+                                      style={{ flex: 1, fontSize: 10, fontWeight: 700, padding: "6px 0", borderRadius: 7, border: "none", background: "#DC2626", color: "#fff", cursor: "pointer" }}>
+                                      ✕ Object
+                                    </button>
+                                  </div>
+                                )}
+                                {myVote && <div style={{fontSize:10,color:"#64748b",fontStyle:"italic",marginTop:5}}>You voted <strong>{myVote}</strong>.</div>}
                               </div>
-                              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                <button onClick={() => handleNotifApprovePurchase(p)} disabled={notifPRBusy === p.id}
-                                  style={{ flex: 1, fontSize: 11, fontWeight: 700, padding: "6px 0", borderRadius: 7, border: "none", background: "#16A34A", color: "#fff", cursor: "pointer", opacity: notifPRBusy === p.id ? 0.6 : 1 }}>
-                                  ✓ {notifPRBusy === p.id ? "Approving…" : "Approve Purchase"}
-                                </button>
-                                <button onClick={() => setNotifRejectingPR(p)} disabled={notifPRBusy === p.id}
-                                  style={{ fontSize: 11, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${BRAND.border}`, background: "none", color: "#DC2626", cursor: "pointer" }}>
-                                  Reject
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
 
@@ -21365,7 +21745,7 @@ export default function App() {
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
-            {tab==="calendar"  && <CalendarView jobs={jobs} user={user} onCheckConflict={brCheckScheduleConflict} />}
+            {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
             {tab==="contacts"  && (() => { markFeatureSeen("contacts"); return <ContactsTab user={user} />; })()}
             {tab==="receipts"  && <StandaloneReceiptsTab user={user} />}
             {tab==="costcalc"  && <JobCostCalcTab user={user} />}
