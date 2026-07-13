@@ -921,7 +921,7 @@ const APP_HUB_APPS = [
     subtitle: "Project planning, timelines & tasks",
     emoji: "📅",
     color: "#2563EB",   // blue
-    dest: "https://planner.sandhservicesspokane.com",
+    dest: "https://sh-strategy-planner.vercel.app/",
   },
   {
     id: "leads",
@@ -929,7 +929,7 @@ const APP_HUB_APPS = [
     subtitle: "Lead pipeline & social media hub",
     emoji: "🎯",
     color: "#7C3AED",   // purple
-    dest: "https://leads.sandhservicesspokane.com",
+    dest: "https://sh-marketing-hub.vercel.app/",
   },
 ];
 
