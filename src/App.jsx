@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26b — Estimate client acceptance/signature flow + stronger 'costs can change' disclaimer wording";
+const BUILD_STAMP = "2026-07-26e — Admin tab: per-employee Visible Tabs picker (add/remove which tabs each person can see)";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -724,7 +724,7 @@ const CAN_ADMIN = ["brandon", "erik", "matt"];
 let _permissions = { ...DEFAULT_PERMISSIONS };
 async function loadPermissions() {
   try {
-    const rows = await sbFetch("permissions?select=user_id,can_delete,can_see_dollars,can_backup,can_submit_jobs,can_edit_jobs,can_view_contacts,can_view_docs");
+    const rows = await sbFetch("permissions?select=user_id,can_delete,can_see_dollars,can_backup,can_submit_jobs,can_edit_jobs,can_view_contacts,can_view_docs,visible_tabs");
     if (rows?.length) {
       const map = {};
       rows.forEach(r => {
@@ -736,6 +736,7 @@ async function loadPermissions() {
           canEditJobs:     r.can_edit_jobs,
           canViewContacts: r.can_view_contacts,
           canViewDocs:     r.can_view_docs,
+          visibleTabIds:   Array.isArray(r.visible_tabs) ? r.visible_tabs : null,
         };
       });
       _permissions = { ...DEFAULT_PERMISSIONS, ...map };
@@ -753,6 +754,7 @@ async function savePermission(userId, perms, updatedBy) {
       can_edit_jobs:     perms.canEditJobs,
       can_view_contacts: perms.canViewContacts,
       can_view_docs:     perms.canViewDocs,
+      visible_tabs:      Array.isArray(perms.visibleTabIds) ? perms.visibleTabIds : null,
       updated_by: updatedBy,
       updated_at: new Date().toISOString(),
     }),
@@ -811,6 +813,55 @@ function canEditJobs(user)     { return !!getPerms(user).canEditJobs; }
 function canViewContacts(user) { return !!getPerms(user).canViewContacts; }
 function canViewDocs(user)     { return !!getPerms(user).canViewDocs; }
 function canAdmin(user)        { return CAN_ADMIN.includes(user?.id); }
+
+// ─── Per-user tab visibility ───────────────────────────────────────────────────
+// Single canonical list of every tab in the app — used both to build the
+// nav/home-grid for the signed-in user AND to drive the "Visible Tabs"
+// picker in the Admin tab, so the two can never drift out of sync.
+const ALL_TABS = [
+  { id:"home",        label:"Home",        icon:"🏠" },
+  { id:"tasks",       label:"My Tasks",    icon:"✅" },
+  { id:"jobs",        label:"Jobs",        icon:"📋" },
+  { id:"submit",      label:"Add New Job", icon:"➕" },
+  { id:"calendar",    label:"Schedule",    icon:"📅" },
+  { id:"receipts",    label:"Receipts",    icon:"🧾" },
+  { id:"contracts",   label:"Contracts",   icon:"📝" },
+  { id:"invoices",    label:"Invoices",    icon:"💰" },
+  { id:"estimates",   label:"Estimates",   icon:"📐" },
+  { id:"rates",       label:"Rates",       icon:"📊" },
+  { id:"materials",   label:"Materials",   icon:"🔍" },
+  { id:"mileage",     label:"Drive & Time", icon:"⏱" },
+  { id:"costcalc",    label:"Cost Calc",   icon:"🧮" },
+  { id:"leads",       label:"Leads",       icon:"🎯" },
+  { id:"contacts",    label:"Contacts",    icon:"👥" },
+  { id:"admin",       label:"Admin",       icon:"⚙️" },
+  { id:"backup",      label:"Backup",      icon:"💾" },
+  { id:"docs",        label:"Docs",        icon:"📁" },
+  { id:"companyinfo", label:"Company Info", icon:"🏢" },
+];
+// These are gated by the hardcoded admin allowlist (CAN_ADMIN), not by the
+// per-user picker — never offered as a checkbox, and always hidden from
+// non-admins no matter what's toggled on.
+const ADMIN_ONLY_TAB_IDS = ["admin", "companyinfo"];
+// Always shown to everyone — there needs to be a landing page, so this isn't
+// offered as something that can be hidden.
+const ALWAYS_VISIBLE_TAB_IDS = ["home"];
+// The subset of tabs an admin can actually toggle per employee.
+const CUSTOMIZABLE_TABS = ALL_TABS.filter(t => !ADMIN_ONLY_TAB_IDS.includes(t.id) && !ALWAYS_VISIBLE_TAB_IDS.includes(t.id));
+
+// Builds the actual tab list a signed-in user sees. `visibleTabIds` on their
+// permissions row is null by default (unrestricted — sees everything); once
+// an admin picks specific tabs for them, only those (plus Home, plus Admin/
+// Company Info if they qualify) are shown.
+function getUserTabs(user) {
+  const restriction = getPerms(user).visibleTabIds;
+  return ALL_TABS.filter(t => {
+    if (ADMIN_ONLY_TAB_IDS.includes(t.id)) return canAdmin(user);
+    if (ALWAYS_VISIBLE_TAB_IDS.includes(t.id)) return true;
+    if (Array.isArray(restriction)) return restriction.includes(t.id);
+    return true;
+  });
+}
 
 const JOB_TYPES = [
   { value: "water",        label: "Water",        icon: "💧", color: "#2563EB" },
@@ -10555,7 +10606,7 @@ function InvoiceGenerator({ jobs, user, onClose, onSaved }) {
         const job = jobs.find(j => j.id === form.jobId);
         if (job) {
           const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
-          await updateJob(updated);
+          await updateJobPhotos(updated);
         }
       }
 
@@ -11051,7 +11102,7 @@ function ContractGenerator({ jobs, user, onClose, onSaved }) {
         const job = jobs.find(j => j.id === form.jobId);
         if (job) {
           const updated = { ...job, photoNames: [...(job.photoNames || []), signedDataUrl] };
-          await updateJob(updated);
+          await updateJobPhotos(updated);
         }
       }
 
@@ -11494,7 +11545,7 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
         const job = jobs.find(j => j.id === form.jobId);
         if (job) {
           const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
-          await updateJob(updated);
+          await updateJobPhotos(updated);
         }
       }
 
@@ -11611,6 +11662,82 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
 }
 
 // ─── Estimate Client Acceptance ────────────────────────────────────────────────
+// Shared canvas renderer for a client's acceptance of an estimate. Used both
+// by the in-person flow (EstimateAcceptance, below) and the remote link a
+// client can open from a text/email (PublicEstimateAcceptPage) — kept as one
+// function so the two acceptance records always look and read identically,
+// differing only in the trailing "signedLine" (who witnessed it / how).
+async function renderEstimateAcceptanceImage({ doc, job, total, clientPrintedName, sigDataUrl, signedLine }) {
+  const W = 800, pad = 40;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = 700;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, 700);
+
+  const logoImg = new Image();
+  await new Promise(res => { logoImg.onload = res; logoImg.onerror = res; logoImg.src = `data:image/png;base64,${LOGO_B64}`; });
+
+  ctx.fillStyle = BRAND.navy; ctx.fillRect(0, 0, W, 80);
+  if (logoImg.complete && logoImg.naturalWidth > 0) {
+    ctx.fillStyle = "#fff"; ctx.fillRect(pad, 10, 60, 60);
+    ctx.drawImage(logoImg, pad, 10, 60, 60);
+  }
+  ctx.fillStyle = "#fff"; ctx.font = "bold 19px Inter, sans-serif";
+  ctx.fillText("CLIENT ACCEPTANCE OF ESTIMATE", pad + 76, 42);
+  ctx.font = "12px Inter, sans-serif"; ctx.fillStyle = BRAND.gold;
+  ctx.fillText("S&H Services Spokane LLC · (509) 903-5744", pad + 76, 64);
+
+  let y = 118;
+  ctx.fillStyle = "#111"; ctx.font = "13px Inter, sans-serif";
+  ctx.fillText(`Estimate: ${doc.name}`, pad, y); y += 22;
+  if (job) { ctx.fillText(`Job: ${job.id} · ${job.customerName}`, pad, y); y += 22; }
+  if (total) { ctx.fillText(`Estimated Total: $${total}`, pad, y); y += 22; }
+  y += 12;
+
+  // Acceptance statement — plain-language version of the estimate disclaimer
+  ctx.font = "11px Inter, sans-serif";
+  const statement = `By signing below, I acknowledge that the document referenced above is an ESTIMATE of costs for the described work — not a final invoice or fixed price. I authorize S&H Services Spokane LLC to proceed with the work described at the estimated price above. I understand that costs can change if additional work, materials, or conditions not visible at the time of this estimate are found to be necessary once work begins, and that I will be informed before any such additional cost is incurred.`;
+  const swords = statement.split(" ");
+  const slines = []; let sbuild = "";
+  swords.forEach(w => {
+    const t = sbuild + w + " ";
+    if (ctx.measureText(t).width > W - pad*2 - 24 && sbuild !== "") { slines.push(sbuild); sbuild = w + " "; }
+    else sbuild = t;
+  });
+  if (sbuild) slines.push(sbuild);
+  const boxH = 16 + slines.length * 16 + 12;
+
+  ctx.fillStyle = "#EFF6FF"; ctx.fillRect(pad, y, W - pad*2, boxH);
+  ctx.strokeStyle = "#BFDBFE"; ctx.lineWidth = 1; ctx.strokeRect(pad, y, W - pad*2, boxH);
+  ctx.fillStyle = "#1D4C92"; ctx.font = "11px Inter, sans-serif";
+  let sy = y + 20; const sx = pad + 12;
+  slines.forEach(line => { ctx.fillText(line, sx, sy); sy += 16; });
+  y += boxH + 26;
+
+  // Signature
+  ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+  ctx.fillText("CLIENT SIGNATURE", pad, y); y += 10;
+  const sigImg = new Image();
+  await new Promise(res => { sigImg.onload = res; sigImg.src = sigDataUrl; });
+  ctx.drawImage(sigImg, pad, y, 340, 100);
+  y += 106;
+  ctx.strokeStyle = "#333"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + 340, y); ctx.stroke();
+  y += 20;
+  ctx.fillStyle = "#333"; ctx.font = "12px Inter, sans-serif";
+  ctx.fillText(clientPrintedName || job?.customerName || "Client", pad, y);
+  y += 18;
+  ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  ctx.fillText(`Signed ${today}  ·  ${signedLine}`, pad, y);
+  y += 30;
+
+  const finalCanvas = document.createElement("canvas");
+  finalCanvas.width = W; finalCanvas.height = y + 10;
+  finalCanvas.getContext("2d").drawImage(canvas, 0, 0);
+  return finalCanvas.toDataURL("image/png");
+}
+
 // Lets the client who received an estimate/bid acknowledge and sign that they
 // agree to have S&H proceed with the described work. Signing is acceptance to
 // proceed at the estimated price — it does NOT lock in a final price, since
@@ -11642,75 +11769,12 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
     if (!hasSig) return;
     setSaving(true);
     try {
-      const W = 800, pad = 40;
-      const canvas = document.createElement("canvas");
-      canvas.width = W; canvas.height = 700;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, 700);
-
-      const logoImg = new Image();
-      await new Promise(res => { logoImg.onload = res; logoImg.onerror = res; logoImg.src = `data:image/png;base64,${LOGO_B64}`; });
-
-      ctx.fillStyle = BRAND.navy; ctx.fillRect(0, 0, W, 80);
-      if (logoImg.complete && logoImg.naturalWidth > 0) {
-        ctx.fillStyle = "#fff"; ctx.fillRect(pad, 10, 60, 60);
-        ctx.drawImage(logoImg, pad, 10, 60, 60);
-      }
-      ctx.fillStyle = "#fff"; ctx.font = "bold 19px Inter, sans-serif";
-      ctx.fillText("CLIENT ACCEPTANCE OF ESTIMATE", pad + 76, 42);
-      ctx.font = "12px Inter, sans-serif"; ctx.fillStyle = BRAND.gold;
-      ctx.fillText("S&H Services Spokane LLC · (509) 903-5744", pad + 76, 64);
-
-      let y = 118;
-      ctx.fillStyle = "#111"; ctx.font = "13px Inter, sans-serif";
-      ctx.fillText(`Estimate: ${doc.name}`, pad, y); y += 22;
-      if (job) { ctx.fillText(`Job: ${job.id} · ${job.customerName}`, pad, y); y += 22; }
-      if (total) { ctx.fillText(`Estimated Total: $${total}`, pad, y); y += 22; }
-      y += 12;
-
-      // Acceptance statement — plain-language version of the estimate disclaimer
-      ctx.font = "11px Inter, sans-serif";
-      const statement = `By signing below, I acknowledge that the document referenced above is an ESTIMATE of costs for the described work — not a final invoice or fixed price. I authorize S&H Services Spokane LLC to proceed with the work described at the estimated price above. I understand that costs can change if additional work, materials, or conditions not visible at the time of this estimate are found to be necessary once work begins, and that I will be informed before any such additional cost is incurred.`;
-      const swords = statement.split(" ");
-      const slines = []; let sbuild = "";
-      swords.forEach(w => {
-        const t = sbuild + w + " ";
-        if (ctx.measureText(t).width > W - pad*2 - 24 && sbuild !== "") { slines.push(sbuild); sbuild = w + " "; }
-        else sbuild = t;
-      });
-      if (sbuild) slines.push(sbuild);
-      const boxH = 16 + slines.length * 16 + 12;
-
-      ctx.fillStyle = "#EFF6FF"; ctx.fillRect(pad, y, W - pad*2, boxH);
-      ctx.strokeStyle = "#BFDBFE"; ctx.lineWidth = 1; ctx.strokeRect(pad, y, W - pad*2, boxH);
-      ctx.fillStyle = "#1D4C92"; ctx.font = "11px Inter, sans-serif";
-      let sy = y + 20; const sx = pad + 12;
-      slines.forEach(line => { ctx.fillText(line, sx, sy); sy += 16; });
-      y += boxH + 26;
-
-      // Signature
-      ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
-      ctx.fillText("CLIENT SIGNATURE", pad, y); y += 10;
       const sigDataUrl = canvasRef.current.toDataURL("image/png");
-      const sigImg = new Image();
-      await new Promise(res => { sigImg.onload = res; sigImg.src = sigDataUrl; });
-      ctx.drawImage(sigImg, pad, y, 340, 100);
-      y += 106;
-      ctx.strokeStyle = "#333"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + 340, y); ctx.stroke();
-      y += 20;
-      ctx.fillStyle = "#333"; ctx.font = "12px Inter, sans-serif";
-      ctx.fillText(clientPrintedName || job?.customerName || "Client", pad, y);
-      y += 18;
-      ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+      const dataUrl = await renderEstimateAcceptanceImage({
+        doc, job, total, clientPrintedName, sigDataUrl,
+        signedLine: `Witnessed by ${user.name}`,
+      });
       const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-      ctx.fillText(`Signed ${today}  ·  Witnessed by ${user.name}`, pad, y);
-      y += 30;
-
-      const finalCanvas = document.createElement("canvas");
-      finalCanvas.width = W; finalCanvas.height = y + 10;
-      finalCanvas.getContext("2d").drawImage(canvas, 0, 0);
-      const dataUrl = finalCanvas.toDataURL("image/png");
 
       await insertDoc({
         id: "DOC-" + Date.now(),
@@ -11725,7 +11789,7 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
 
       if (job) {
         const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
-        await updateJob(updated);
+        await updateJobPhotos(updated);
       }
 
       onDone();
@@ -12017,9 +12081,10 @@ function DocsTab({ user, jobs }) {
 // ── ShareModal — top-level to prevent remount on keystroke ────────────────────
 function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
   const isEmail = type === "email";
+  const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
   const steps = isEmail
-    ? ["Enter the recipient's email", "Tap Send — doc downloads to your device", "Your email app opens pre-filled", "Attach the file and send"]
-    : ["Enter the recipient's phone number", "Tap Send — doc downloads to your device", "Your Messages app opens pre-filled", "Attach the file and send"];
+    ? ["Enter the recipient's email", "Tap Send — your email app opens pre-filled with a secure link", isSignFlow ? "The client taps the link, reviews the estimate, and signs online" : "The client taps the link to view or download it", "Review and send the email"]
+    : ["Enter the recipient's phone number", "Tap Send — your Messages app opens pre-filled with a secure link", isSignFlow ? "The client taps the link, reviews the estimate, and signs online" : "The client taps the link to view or download it", "Review and send the text"];
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: BRAND.white, borderRadius: 14, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
@@ -12046,7 +12111,7 @@ function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
           <button style={{ ...S.btn("ghost"), flex: 1, marginTop: 0 }} onClick={onClose}>Cancel</button>
           <button style={{ ...S.btn("primary"), flex: 1, marginTop: 0, opacity: value ? 1 : 0.4 }}
             onClick={() => onSend(doc)} disabled={!value}>
-            {isEmail ? "📥 Download & Email" : "📥 Download & Text"}
+            {isEmail ? "✉️ Prepare Email" : "💬 Prepare Text"}
           </button>
         </div>
       </div>
@@ -12105,18 +12170,30 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
     setActionDocId(null);
   }
 
+  async function copyDocLink(doc) {
+    const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+    const link = isSignFlow
+      ? `${window.location.origin}/accept-estimate/${doc.id}`
+      : `${window.location.origin}/view-doc/${doc.id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setToast({ msg: "Link copied — paste it anywhere!", ok: true });
+    } catch {
+      window.prompt("Copy this link:", link);
+    }
+    setTimeout(() => setToast(null), 3000);
+  }
+
   async function sendEmail(doc) {
     if (!emailTo) return;
     try {
-      const url = await fetchDocUrl(doc.id);
-      if (!url) return;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.name.replace(/[^a-z0-9]/gi, "_") + ".png";
-      a.click();
-      await new Promise(r => setTimeout(r, 800));
+      const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const link = isSignFlow
+        ? `${window.location.origin}/accept-estimate/${doc.id}`
+        : `${window.location.origin}/view-doc/${doc.id}`;
+      const docLabel = docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice";
 
-      // Try to extract amount from doc name or linked job
+      // Try to extract amount from doc name or linked job (invoices only)
       let amountLine = "";
       if (docType === "invoice") {
         const jobMatch = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
@@ -12126,11 +12203,13 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
 
       const subject = encodeURIComponent(`${doc.name} — S&H Services Spokane`);
       const body = encodeURIComponent(
-        `Hi,\n\nPlease find your ${docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice"} from S&H Services Spokane attached to this email.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was just downloaded to your device — please attach it to this email before sending.\n\nThank you,\nS&H Services Spokane LLC\n(509) 903-5744\nshservicesspokane.com`
+        isSignFlow
+          ? `Hi,\n\nYour estimate from S&H Services Spokane is ready to review.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}\n\nPlease review it and sign to accept here:\n${link}\n\nThis is an estimate, not a final invoice — costs can change if additional work is needed once we begin, and we'll let you know before any extra cost is incurred.\n\nQuestions? Call us at (509) 903-5744.\n\nThank you,\nS&H Services Spokane LLC\nshservicesspokane.com`
+          : `Hi,\n\nYour ${docLabel} from S&H Services Spokane is ready to view.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nView or download it here:\n${link}\n\nQuestions? Call us at (509) 903-5744.\n\nThank you,\nS&H Services Spokane LLC\nshservicesspokane.com`
       );
       window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
       setEmailModal(null);
-      setToast({ msg: "File downloaded — attach it to the email!", ok: true });
+      setToast({ msg: "Email ready — review and hit send!", ok: true });
       setTimeout(() => setToast(null), 5000);
     } catch {
       setToast({ msg: "Something went wrong", ok: false });
@@ -12141,15 +12220,14 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
   async function sendText(doc) {
     if (!smsTo) return;
     try {
-      const url = await fetchDocUrl(doc.id);
-      if (!url) return;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.name.replace(/[^a-z0-9]/gi, "_") + ".png";
-      a.click();
-      await new Promise(r => setTimeout(r, 800));
+      const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const link = isSignFlow
+        ? `${window.location.origin}/accept-estimate/${doc.id}`
+        : `${window.location.origin}/view-doc/${doc.id}`;
+      const docLabel = docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice";
+      const phone = smsTo.replace(/\D/g, "");
 
-      // Try to extract amount from doc name or linked job
+      // Try to extract amount from doc name or linked job (invoices only)
       let amountLine = "";
       if (docType === "invoice") {
         const jobMatch = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
@@ -12157,16 +12235,17 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
         if (amt) amountLine = `\n💰 Amount Due: $${Number(amt).toLocaleString()}`;
       }
 
-      const phone = smsTo.replace(/\D/g, "");
       const msg = encodeURIComponent(
-        `Hi! Here is your ${docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice"} from S&H Services Spokane:\n\n📄 ${doc.name}\n📅 Date: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was downloaded to your device — please attach it to this message.\n\nThank you!\n— S&H Services Spokane\n(509) 903-5744`
+        isSignFlow
+          ? `Hi! Your estimate from S&H Services Spokane is ready to review:\n\n📄 ${doc.name}\n\nReview it and sign to accept here:\n${link}\n\nThis is an estimate, not a final invoice — costs can change if additional work is needed. Questions? Call (509) 903-5744.\n— S&H Services Spokane`
+          : `Hi! Here is your ${docLabel} from S&H Services Spokane:\n\n📄 ${doc.name}${amountLine}\n\nView or download it here:\n${link}\n\nQuestions? Call (509) 903-5744.\n— S&H Services Spokane`
       );
       const smsUrl = /iphone|ipad|ipod/i.test(navigator.userAgent)
         ? `sms:${phone}&body=${msg}`
         : `sms:${phone}?body=${msg}`;
       window.open(smsUrl);
       setSmsModal(null);
-      setToast({ msg: "File downloaded — attach it to the text!", ok: true });
+      setToast({ msg: "Text ready — review and hit send!", ok: true });
       setTimeout(() => setToast(null), 5000);
     } catch {
       setToast({ msg: "Something went wrong", ok: false });
@@ -12266,6 +12345,9 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
                   </button>
                   <button onClick={() => { setSmsModal(doc); setSmsTo(""); }} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                     💬 Text
+                  </button>
+                  <button onClick={() => copyDocLink(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
+                    🔗 Copy Link
                   </button>
                   {docType === "estimate" && !isAcceptedCopy && (
                     <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
@@ -16389,6 +16471,27 @@ function AdminTab({ user, onShowPolicy }) {
     }));
   }
 
+  // Toggling a tab off for the first time switches that user from
+  // "unrestricted" (visibleTabIds: null) to an explicit list — starting
+  // from every customizable tab so the one they just tapped is the only
+  // change, rather than suddenly hiding everything else too.
+  function toggleTab(userId, tabId) {
+    setLocalPerms(prev => {
+      const current = prev[userId] || {};
+      const baseline = Array.isArray(current.visibleTabIds)
+        ? current.visibleTabIds
+        : CUSTOMIZABLE_TABS.map(t => t.id);
+      const nextList = baseline.includes(tabId)
+        ? baseline.filter(id => id !== tabId)
+        : [...baseline, tabId];
+      return { ...prev, [userId]: { ...current, visibleTabIds: nextList } };
+    });
+  }
+
+  function resetTabsToAll(userId) {
+    setLocalPerms(prev => ({ ...prev, [userId]: { ...prev[userId], visibleTabIds: null } }));
+  }
+
   async function saveUser(userId) {
     setSaving(s => ({ ...s, [userId]: true }));
     try {
@@ -16793,9 +16896,10 @@ function AdminTab({ user, onShowPolicy }) {
 
               {isAdmin ? (
                 <div style={{ fontSize: 12, color: BRAND.muted, fontStyle: "italic", padding: "8px 0" }}>
-                  Admin accounts have all permissions and cannot be restricted.
+                  Admin accounts have all permissions and see every tab — can't be restricted.
                 </div>
               ) : (
+                <>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {PERMISSION_DEFS.map(p => {
                     const enabled = !!perms[p.key];
@@ -16813,6 +16917,41 @@ function AdminTab({ user, onShowPolicy }) {
                     );
                   })}
                 </div>
+
+                {/* Visible Tabs picker */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BRAND.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: BRAND.navy }}>📱 Visible Tabs</div>
+                    {Array.isArray(perms.visibleTabIds) && (
+                      <button onClick={() => resetTabsToAll(u.id)} style={{ background: "none", border: "none", color: BRAND.blue, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                        Show All
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: BRAND.muted, marginBottom: 8 }}>
+                    {Array.isArray(perms.visibleTabIds)
+                      ? `Only the highlighted tabs below are shown to ${u.name.split(" ")[0]}.`
+                      : `${u.name.split(" ")[0]} currently sees every tab. Tap one below to start restricting.`}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {CUSTOMIZABLE_TABS.map(t => {
+                      const restricted = Array.isArray(perms.visibleTabIds);
+                      const shown = restricted ? perms.visibleTabIds.includes(t.id) : true;
+                      return (
+                        <button key={t.id} onClick={() => toggleTab(u.id, t.id)} style={{
+                          display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 99,
+                          border: `1.5px solid ${shown ? "#16A34A" : BRAND.border}`,
+                          background: shown ? "#F0FDF4" : BRAND.offWhite,
+                          color: shown ? "#15803D" : BRAND.muted,
+                          fontSize: 12, fontWeight: 600, cursor: "pointer",
+                        }}>
+                          <span>{t.icon}</span><span>{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                </>
               )}
 
               {/* Password reset */}
@@ -20830,7 +20969,283 @@ function PublicCrewPage({ recordId }) {
   );
 }
 
+// ─── Public Estimate Acceptance ────────────────────────────────────────────────
+// Reached via /accept-estimate/:docId, put straight into the Email/Text body
+// for an estimate. No login — the client receiving the link isn't an app
+// user, same reasoning as /crew/:id above. Lets them review the actual
+// estimate image and sign right on their own phone or computer.
+function PublicEstimateAcceptPage({ docId }) {
+  const [doc, setDoc] = useState(null);
+  const [job, setJob] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [alreadyAccepted, setAlreadyAccepted] = useState(false);
+  const [done, setDone] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [clientPrintedName, setClientPrintedName] = useState("");
+  const canvasRef = useRef();
+  const [drawing, setDrawing] = useState(false);
+  const [hasSig, setHasSig] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await sbFetch(`documents?id=eq.${encodeURIComponent(docId)}&select=id,name,description,doc_type,url`);
+        const rec = rows?.[0];
+        if (!rec || rec.doc_type !== "estimate" || rec.name?.startsWith("[Client Accepted]")) {
+          setNotFound(true); setLoading(false); return;
+        }
+        setDoc(rec);
+        setClientPrintedName("");
+
+        // Has this estimate already been signed? Check for its acceptance copy.
+        const acceptedRows = await sbFetch(`documents?name=eq.${encodeURIComponent("[Client Accepted] " + rec.name)}&select=id`);
+        if (acceptedRows?.length) setAlreadyAccepted(true);
+
+        // Try to resolve the linked job (description reads "Estimate for <jobId> · ...")
+        const jobIdMatch = rec.description?.match(/^Estimate for (\S+) ·/);
+        const parsedJobId = jobIdMatch && jobIdMatch[1] !== "job" ? jobIdMatch[1] : null;
+        if (parsedJobId) {
+          const jobRows = await sbFetch(`jobs?id=eq.${encodeURIComponent(parsedJobId)}&select=id,customer_name,photo_names`);
+          const jr = jobRows?.[0];
+          if (jr) {
+            let photoNames = [];
+            try { photoNames = JSON.parse(jr.photo_names || "[]"); } catch {}
+            setJob({ id: jr.id, customerName: jr.customer_name, photoNames });
+          }
+        }
+      } catch {
+        setNotFound(true);
+      }
+      setLoading(false);
+    })();
+  }, [docId]);
+
+  const amountMatch = doc?.description?.match(/\$([\d,]+\.\d{2})/);
+  const total = amountMatch ? amountMatch[1] : null;
+
+  function getPos(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+  function startDraw(e) { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext("2d"); const p = getPos(e, c); ctx.beginPath(); ctx.moveTo(p.x, p.y); setDrawing(true); setHasSig(true); }
+  function draw(e) { e.preventDefault(); if (!drawing) return; const c = canvasRef.current; const ctx = c.getContext("2d"); ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = BRAND.navy; const p = getPos(e, c); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  function endDraw(e) { e.preventDefault(); setDrawing(false); }
+  function clearSig() { const c = canvasRef.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); setHasSig(false); }
+
+  async function submitAcceptance() {
+    if (!hasSig || !doc) return;
+    setSaving(true);
+    try {
+      const sigDataUrl = canvasRef.current.toDataURL("image/png");
+      const dataUrl = await renderEstimateAcceptanceImage({
+        doc, job, total, clientPrintedName, sigDataUrl,
+        signedLine: "Signed online via secure link",
+      });
+      const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+      await insertDoc({
+        id: "DOC-" + Date.now(),
+        name: `[Client Accepted] ${doc.name}`,
+        description: `Client accepted online${clientPrintedName ? ` by ${clientPrintedName}` : ""}${job ? ` for ${job.id}` : ""} · Signed ${today}`,
+        url: dataUrl,
+        file_type: "png",
+        doc_type: "estimate",
+        uploaded_by: clientPrintedName || "Client (online)",
+        uploaded_at: new Date().toISOString(),
+      });
+
+      if (job) {
+        const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
+        await updateJobPhotos(updated);
+      }
+
+      setDone(true);
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
+  }
+
+  if (loading) {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: BRAND.offWhite }}><Spinner msg="Loading…" /></div>;
+  }
+
+  if (notFound) {
+    return (
+      <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+        <div>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 15, color: BRAND.muted }}>This link has expired or doesn't exist.</div>
+          <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 8 }}>Please contact S&H Services Spokane at (509) 903-5744.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", justifyContent: "center", padding: "32px 16px", fontFamily: "inherit" }}>
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 200, marginBottom: 8 }} />
+        </div>
+
+        {(done || alreadyAccepted) ? (
+          <div style={{ background: BRAND.white, borderRadius: 16, padding: 28, boxShadow: "0 2px 12px rgba(29,76,146,0.1)", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy, marginBottom: 6 }}>
+              {done ? "Thank you — you're all set!" : "Already accepted"}
+            </div>
+            <div style={{ fontSize: 13, color: BRAND.muted, lineHeight: 1.5 }}>
+              {done
+                ? "We've received your acceptance and will be in touch to schedule the work."
+                : "This estimate has already been signed and accepted. If anything has changed, just give us a call."}
+            </div>
+            <div style={{ fontSize: 13, color: BRAND.navy, fontWeight: 700, marginTop: 14 }}>📞 (509) 903-5744</div>
+          </div>
+        ) : (
+          <div style={{ background: BRAND.white, borderRadius: 16, padding: 20, boxShadow: "0 2px 12px rgba(29,76,146,0.1)" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, textAlign: "center", marginBottom: 4 }}>Review & Accept Your Estimate</div>
+            {job?.customerName && <div style={{ fontSize: 13, color: BRAND.muted, textAlign: "center", marginBottom: 12 }}>{job.customerName}</div>}
+
+            {doc?.url && (
+              <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+            )}
+
+            {total && (
+              <div style={{ ...S.card, background: BRAND.navy, border: "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 13, color: BRAND.gold, fontWeight: 700 }}>ESTIMATED TOTAL</span>
+                  <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>${total}</span>
+                </div>
+              </div>
+            )}
+
+            <div style={{ ...S.card, background: "#FFF7ED", border: "1px solid #FDBA74" }}>
+              <div style={{ fontSize: 12.5, color: "#7C2D12", lineHeight: 1.5 }}>
+                This is an <strong>estimate</strong> — not a final price. Signing below authorizes S&H Services Spokane LLC to proceed with the work described. <strong>Costs can change if additional work is needed</strong> once work begins; you'll be told before any extra cost is incurred.
+              </div>
+            </div>
+
+            <div style={S.card}>
+              <label style={S.lbl}>Your Printed Name</label>
+              <input style={S.input} placeholder={job?.customerName || "Your name"} value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
+            </div>
+
+            <div style={S.card}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <label style={{ ...S.lbl, margin: 0 }}>Your Signature</label>
+                {hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
+              </div>
+              <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 8 }}>Sign with your finger or mouse below</div>
+              <div style={{ background: "#F8FAFF", border: `2px solid ${hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none" }}>
+                <canvas ref={canvasRef} width={380} height={180}
+                  style={{ display: "block", width: "100%", height: 180, cursor: "crosshair" }}
+                  onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+                  onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+              </div>
+              <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={clearSig}>Clear</button>
+            </div>
+
+            <button style={{ ...S.btn("primary"), opacity: (hasSig && !saving) ? 1 : 0.4 }} disabled={!hasSig || saving} onClick={submitAcceptance}>
+              {saving ? "Submitting…" : "✓ Accept & Sign Estimate"}
+            </button>
+
+            <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
+              Questions before you sign? Call us at (509) 903-5744.
+            </div>
+          </div>
+        )}
+
+        <div style={{ textAlign: "center", fontSize: 11, color: BRAND.muted, marginTop: 20 }}>
+          S&H Services Spokane LLC
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Public Document View ──────────────────────────────────────────────────────
+// Reached via /view-doc/:docId, put straight into the Email/Text body for
+// invoices, contracts, and already-signed estimate acceptance records. No
+// login — the client receiving the link isn't an app user, same reasoning
+// as the other public pages above. View + download only, no signing here
+// (that's what /accept-estimate/ is for on a live estimate).
+function PublicDocumentViewPage({ docId }) {
+  const [doc, setDoc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await sbFetch(`documents?id=eq.${encodeURIComponent(docId)}&select=id,name,description,doc_type,url,uploaded_at`);
+        const rec = rows?.[0];
+        if (!rec) { setNotFound(true); setLoading(false); return; }
+        setDoc(rec);
+      } catch {
+        setNotFound(true);
+      }
+      setLoading(false);
+    })();
+  }, [docId]);
+
+  function download() {
+    if (!doc?.url) return;
+    const a = document.createElement("a");
+    a.href = doc.url;
+    a.download = doc.name.replace(/[^a-z0-9]/gi, "_") + ".png";
+    a.click();
+  }
+
+  if (loading) {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: BRAND.offWhite }}><Spinner msg="Loading…" /></div>;
+  }
+
+  if (notFound || !doc) {
+    return (
+      <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+        <div>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 15, color: BRAND.muted }}>This link has expired or doesn't exist.</div>
+          <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 8 }}>Please contact S&H Services Spokane at (509) 903-5744.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const label = doc.doc_type === "invoice" ? "Invoice" : doc.doc_type === "contract" ? "Contract" : doc.doc_type === "estimate" ? "Estimate" : "Document";
+
+  return (
+    <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", justifyContent: "center", padding: "32px 16px", fontFamily: "inherit" }}>
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 200, marginBottom: 8 }} />
+        </div>
+
+        <div style={{ background: BRAND.white, borderRadius: 16, padding: 20, boxShadow: "0 2px 12px rgba(29,76,146,0.1)" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, textAlign: "center", marginBottom: 4 }}>Your {label} from S&H Services</div>
+          <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>{doc.name}</div>
+
+          {doc.url && (
+            <img src={doc.url} alt={label} style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+          )}
+
+          <button onClick={download} style={S.btn("primary")}>⬇ Download</button>
+
+          <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
+            Questions? Call us at (509) 903-5744.
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", fontSize: 11, color: BRAND.muted, marginTop: 20 }}>
+          S&H Services Spokane LLC
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   // Public route — /contact is reachable by anyone (QR code scans, shared
@@ -20845,6 +21260,22 @@ export default function App() {
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/crew/")) {
     const recordId = window.location.pathname.split("/crew/")[1];
     return <PublicCrewPage recordId={recordId} />;
+  }
+
+  // Public route — /accept-estimate/:docId lets a client who received an
+  // estimate by text/email review it and sign to accept, right from their
+  // own phone. No login — same reasoning as /crew/:id above.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/accept-estimate/")) {
+    const docId = window.location.pathname.split("/accept-estimate/")[1];
+    return <PublicEstimateAcceptPage docId={docId} />;
+  }
+
+  // Public route — /view-doc/:docId lets a client view/download an invoice,
+  // contract, or already-signed estimate straight from an emailed/texted
+  // link, with no download-and-attach dance and no login required.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/view-doc/")) {
+    const docId = window.location.pathname.split("/view-doc/")[1];
+    return <PublicDocumentViewPage docId={docId} />;
   }
 
   // Stay logged in across visits — restore the saved session on load, but
@@ -21312,27 +21743,7 @@ export default function App() {
     <AppErrorBoundary><div style={S.app}><LoginScreen onLogin={setUser} /></div></AppErrorBoundary>
   );
 
-  const tabs = [
-    { id:"home",      label:"Home",      icon:"🏠" },
-    { id:"tasks",     label:"My Tasks",  icon:"✅" },
-    { id:"jobs",      label:"Jobs",      icon:"📋" },
-    { id:"submit",    label:"Add New Job", icon:"➕" },
-    { id:"calendar",  label:"Schedule",  icon:"📅" },
-    { id:"receipts",  label:"Receipts",  icon:"🧾" },
-    { id:"contracts", label:"Contracts", icon:"📝" },
-    { id:"invoices",  label:"Invoices",  icon:"💰" },
-    { id:"estimates", label:"Estimates", icon:"📐" },
-    { id:"rates",     label:"Rates",     icon:"📊" },
-    { id:"materials", label:"Materials", icon:"🔍" },
-    { id:"mileage",   label:"Drive & Time",   icon:"⏱" },
-    { id:"costcalc",  label:"Cost Calc", icon:"🧮" },
-    { id:"leads",     label:"Leads",     icon:"🎯" },
-    { id:"contacts",  label:"Contacts",  icon:"👥" },
-    { id:"admin",     label:"Admin",     icon:"⚙️" },
-    { id:"backup",    label:"Backup",    icon:"💾" },
-    { id:"docs",      label:"Docs",      icon:"📁" },
-    ...(canAdmin(user) ? [{ id:"companyinfo", label:"Company Info", icon:"🏢" }] : []),
-  ];
+  const tabs = getUserTabs(user);
   const homeGridTabs = tabs.filter(t => t.id !== "home");
 
   return (
