@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26c — Remote client accept-and-sign link (/accept-estimate/:id) for estimates sent by email/text + fixed job-photo-attach bug";
+const BUILD_STAMP = "2026-07-26d — Email/Text for Invoices, Contracts & Estimates now opens pre-filled with a link (/view-doc/:id) instead of download-and-attach";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -12030,14 +12030,10 @@ function DocsTab({ user, jobs }) {
 // ── ShareModal — top-level to prevent remount on keystroke ────────────────────
 function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
   const isEmail = type === "email";
-  const isEstimateLink = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
-  const steps = isEstimateLink
-    ? (isEmail
-        ? ["Enter the recipient's email", "Tap Send — your email app opens pre-filled with a secure link", "The client taps the link, reviews the estimate, and signs online", "Review and send the email"]
-        : ["Enter the recipient's phone number", "Tap Send — your Messages app opens pre-filled with a secure link", "The client taps the link, reviews the estimate, and signs online", "Review and send the text"])
-    : isEmail
-      ? ["Enter the recipient's email", "Tap Send — doc downloads to your device", "Your email app opens pre-filled", "Attach the file and send"]
-      : ["Enter the recipient's phone number", "Tap Send — doc downloads to your device", "Your Messages app opens pre-filled", "Attach the file and send"];
+  const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+  const steps = isEmail
+    ? ["Enter the recipient's email", "Tap Send — your email app opens pre-filled with a secure link", isSignFlow ? "The client taps the link, reviews the estimate, and signs online" : "The client taps the link to view or download it", "Review and send the email"]
+    : ["Enter the recipient's phone number", "Tap Send — your Messages app opens pre-filled with a secure link", isSignFlow ? "The client taps the link, reviews the estimate, and signs online" : "The client taps the link to view or download it", "Review and send the text"];
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: BRAND.white, borderRadius: 14, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
@@ -12064,7 +12060,7 @@ function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
           <button style={{ ...S.btn("ghost"), flex: 1, marginTop: 0 }} onClick={onClose}>Cancel</button>
           <button style={{ ...S.btn("primary"), flex: 1, marginTop: 0, opacity: value ? 1 : 0.4 }}
             onClick={() => onSend(doc)} disabled={!value}>
-            {isEstimateLink ? (isEmail ? "✉️ Prepare Email" : "💬 Prepare Text") : (isEmail ? "📥 Download & Email" : "📥 Download & Text")}
+            {isEmail ? "✉️ Prepare Email" : "💬 Prepare Text"}
           </button>
         </div>
       </div>
@@ -12123,8 +12119,11 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
     setActionDocId(null);
   }
 
-  async function copyEstimateLink(doc) {
-    const link = `${window.location.origin}/accept-estimate/${doc.id}`;
+  async function copyDocLink(doc) {
+    const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+    const link = isSignFlow
+      ? `${window.location.origin}/accept-estimate/${doc.id}`
+      : `${window.location.origin}/view-doc/${doc.id}`;
     try {
       await navigator.clipboard.writeText(link);
       setToast({ msg: "Link copied — paste it anywhere!", ok: true });
@@ -12137,29 +12136,13 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
   async function sendEmail(doc) {
     if (!emailTo) return;
     try {
-      const isEstimateLink = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
-      if (isEstimateLink) {
-        const link = `${window.location.origin}/accept-estimate/${doc.id}`;
-        const subject = encodeURIComponent(`${doc.name} — S&H Services Spokane`);
-        const body = encodeURIComponent(
-          `Hi,\n\nYour estimate from S&H Services Spokane is ready to review.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}\n\nPlease review it and sign to accept here:\n${link}\n\nThis is an estimate, not a final invoice — costs can change if additional work is needed once we begin, and we'll let you know before any extra cost is incurred.\n\nQuestions? Call us at (509) 903-5744.\n\nThank you,\nS&H Services Spokane LLC\nshservicesspokane.com`
-        );
-        window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
-        setEmailModal(null);
-        setToast({ msg: "Email ready — review and hit send!", ok: true });
-        setTimeout(() => setToast(null), 5000);
-        return;
-      }
+      const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const link = isSignFlow
+        ? `${window.location.origin}/accept-estimate/${doc.id}`
+        : `${window.location.origin}/view-doc/${doc.id}`;
+      const docLabel = docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice";
 
-      const url = await fetchDocUrl(doc.id);
-      if (!url) return;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.name.replace(/[^a-z0-9]/gi, "_") + ".png";
-      a.click();
-      await new Promise(r => setTimeout(r, 800));
-
-      // Try to extract amount from doc name or linked job
+      // Try to extract amount from doc name or linked job (invoices only)
       let amountLine = "";
       if (docType === "invoice") {
         const jobMatch = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
@@ -12169,11 +12152,13 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
 
       const subject = encodeURIComponent(`${doc.name} — S&H Services Spokane`);
       const body = encodeURIComponent(
-        `Hi,\n\nPlease find your ${docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice"} from S&H Services Spokane attached to this email.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was just downloaded to your device — please attach it to this email before sending.\n\nThank you,\nS&H Services Spokane LLC\n(509) 903-5744\nshservicesspokane.com`
+        isSignFlow
+          ? `Hi,\n\nYour estimate from S&H Services Spokane is ready to review.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}\n\nPlease review it and sign to accept here:\n${link}\n\nThis is an estimate, not a final invoice — costs can change if additional work is needed once we begin, and we'll let you know before any extra cost is incurred.\n\nQuestions? Call us at (509) 903-5744.\n\nThank you,\nS&H Services Spokane LLC\nshservicesspokane.com`
+          : `Hi,\n\nYour ${docLabel} from S&H Services Spokane is ready to view.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nView or download it here:\n${link}\n\nQuestions? Call us at (509) 903-5744.\n\nThank you,\nS&H Services Spokane LLC\nshservicesspokane.com`
       );
       window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
       setEmailModal(null);
-      setToast({ msg: "File downloaded — attach it to the email!", ok: true });
+      setToast({ msg: "Email ready — review and hit send!", ok: true });
       setTimeout(() => setToast(null), 5000);
     } catch {
       setToast({ msg: "Something went wrong", ok: false });
@@ -12184,33 +12169,14 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
   async function sendText(doc) {
     if (!smsTo) return;
     try {
-      const isEstimateLink = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const link = isSignFlow
+        ? `${window.location.origin}/accept-estimate/${doc.id}`
+        : `${window.location.origin}/view-doc/${doc.id}`;
+      const docLabel = docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice";
       const phone = smsTo.replace(/\D/g, "");
 
-      if (isEstimateLink) {
-        const link = `${window.location.origin}/accept-estimate/${doc.id}`;
-        const msg = encodeURIComponent(
-          `Hi! Your estimate from S&H Services Spokane is ready to review:\n\n📄 ${doc.name}\n\nReview it and sign to accept here:\n${link}\n\nThis is an estimate, not a final invoice — costs can change if additional work is needed. Questions? Call (509) 903-5744.\n— S&H Services Spokane`
-        );
-        const smsUrl = /iphone|ipad|ipod/i.test(navigator.userAgent)
-          ? `sms:${phone}&body=${msg}`
-          : `sms:${phone}?body=${msg}`;
-        window.open(smsUrl);
-        setSmsModal(null);
-        setToast({ msg: "Text ready — review and hit send!", ok: true });
-        setTimeout(() => setToast(null), 5000);
-        return;
-      }
-
-      const url = await fetchDocUrl(doc.id);
-      if (!url) return;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.name.replace(/[^a-z0-9]/gi, "_") + ".png";
-      a.click();
-      await new Promise(r => setTimeout(r, 800));
-
-      // Try to extract amount from doc name or linked job
+      // Try to extract amount from doc name or linked job (invoices only)
       let amountLine = "";
       if (docType === "invoice") {
         const jobMatch = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
@@ -12219,14 +12185,16 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
       }
 
       const msg = encodeURIComponent(
-        `Hi! Here is your ${docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice"} from S&H Services Spokane:\n\n📄 ${doc.name}\n📅 Date: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was downloaded to your device — please attach it to this message.\n\nThank you!\n— S&H Services Spokane\n(509) 903-5744`
+        isSignFlow
+          ? `Hi! Your estimate from S&H Services Spokane is ready to review:\n\n📄 ${doc.name}\n\nReview it and sign to accept here:\n${link}\n\nThis is an estimate, not a final invoice — costs can change if additional work is needed. Questions? Call (509) 903-5744.\n— S&H Services Spokane`
+          : `Hi! Here is your ${docLabel} from S&H Services Spokane:\n\n📄 ${doc.name}${amountLine}\n\nView or download it here:\n${link}\n\nQuestions? Call (509) 903-5744.\n— S&H Services Spokane`
       );
       const smsUrl = /iphone|ipad|ipod/i.test(navigator.userAgent)
         ? `sms:${phone}&body=${msg}`
         : `sms:${phone}?body=${msg}`;
       window.open(smsUrl);
       setSmsModal(null);
-      setToast({ msg: "File downloaded — attach it to the text!", ok: true });
+      setToast({ msg: "Text ready — review and hit send!", ok: true });
       setTimeout(() => setToast(null), 5000);
     } catch {
       setToast({ msg: "Something went wrong", ok: false });
@@ -12327,11 +12295,9 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
                   <button onClick={() => { setSmsModal(doc); setSmsTo(""); }} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                     💬 Text
                   </button>
-                  {docType === "estimate" && !isAcceptedCopy && (
-                    <button onClick={() => copyEstimateLink(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
-                      🔗 Copy Link
-                    </button>
-                  )}
+                  <button onClick={() => copyDocLink(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
+                    🔗 Copy Link
+                  </button>
                   {docType === "estimate" && !isAcceptedCopy && (
                     <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                       {hasAcceptedCopy ? "✍️ Sign Again" : "✍️ Client Accept"}
@@ -21092,6 +21058,87 @@ function PublicEstimateAcceptPage({ docId }) {
   );
 }
 
+// ─── Public Document View ──────────────────────────────────────────────────────
+// Reached via /view-doc/:docId, put straight into the Email/Text body for
+// invoices, contracts, and already-signed estimate acceptance records. No
+// login — the client receiving the link isn't an app user, same reasoning
+// as the other public pages above. View + download only, no signing here
+// (that's what /accept-estimate/ is for on a live estimate).
+function PublicDocumentViewPage({ docId }) {
+  const [doc, setDoc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await sbFetch(`documents?id=eq.${encodeURIComponent(docId)}&select=id,name,description,doc_type,url,uploaded_at`);
+        const rec = rows?.[0];
+        if (!rec) { setNotFound(true); setLoading(false); return; }
+        setDoc(rec);
+      } catch {
+        setNotFound(true);
+      }
+      setLoading(false);
+    })();
+  }, [docId]);
+
+  function download() {
+    if (!doc?.url) return;
+    const a = document.createElement("a");
+    a.href = doc.url;
+    a.download = doc.name.replace(/[^a-z0-9]/gi, "_") + ".png";
+    a.click();
+  }
+
+  if (loading) {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: BRAND.offWhite }}><Spinner msg="Loading…" /></div>;
+  }
+
+  if (notFound || !doc) {
+    return (
+      <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+        <div>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 15, color: BRAND.muted }}>This link has expired or doesn't exist.</div>
+          <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 8 }}>Please contact S&H Services Spokane at (509) 903-5744.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const label = doc.doc_type === "invoice" ? "Invoice" : doc.doc_type === "contract" ? "Contract" : doc.doc_type === "estimate" ? "Estimate" : "Document";
+
+  return (
+    <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", justifyContent: "center", padding: "32px 16px", fontFamily: "inherit" }}>
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 200, marginBottom: 8 }} />
+        </div>
+
+        <div style={{ background: BRAND.white, borderRadius: 16, padding: 20, boxShadow: "0 2px 12px rgba(29,76,146,0.1)" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, textAlign: "center", marginBottom: 4 }}>Your {label} from S&H Services</div>
+          <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>{doc.name}</div>
+
+          {doc.url && (
+            <img src={doc.url} alt={label} style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+          )}
+
+          <button onClick={download} style={S.btn("primary")}>⬇ Download</button>
+
+          <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
+            Questions? Call us at (509) 903-5744.
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", fontSize: 11, color: BRAND.muted, marginTop: 20 }}>
+          S&H Services Spokane LLC
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // Public route — /contact is reachable by anyone (QR code scans, shared
   // links) without logging in. Checked first, before any session/auth logic.
@@ -21113,6 +21160,14 @@ export default function App() {
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/accept-estimate/")) {
     const docId = window.location.pathname.split("/accept-estimate/")[1];
     return <PublicEstimateAcceptPage docId={docId} />;
+  }
+
+  // Public route — /view-doc/:docId lets a client view/download an invoice,
+  // contract, or already-signed estimate straight from an emailed/texted
+  // link, with no download-and-attach dance and no login required.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/view-doc/")) {
+    const docId = window.location.pathname.split("/view-doc/")[1];
+    return <PublicDocumentViewPage docId={docId} />;
   }
 
   // Stay logged in across visits — restore the saved session on load, but
