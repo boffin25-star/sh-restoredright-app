@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-11 — App Hub splash screen, Policy gate, Dual-owner approvals, Schedule conflict flow";
+const BUILD_STAMP = "2026-07-26b — Estimate client acceptance/signature flow + stronger 'costs can change' disclaimer wording";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -901,140 +901,6 @@ const S = {
   sect:     { fontSize: 12, fontWeight: 700, color: BRAND.muted, margin: "6px 0 10px", textTransform: "uppercase", letterSpacing: 0.5 },
 };
 
-
-// ─── App Hub Screen ───────────────────────────────────────────────────────────
-// Second splash shown after login & policy gate — lets the user pick which
-// S&H app they want to open.  "main" navigates into the main job-tracker;
-// the other two open external URLs in a new tab, then land on main anyway.
-const APP_HUB_APPS = [
-  {
-    id: "main",
-    label: "Jobs & Operations",
-    subtitle: "Job tracking, receipts, schedules & more",
-    emoji: "🏗️",
-    color: "#1B3A6B",   // navy
-    dest: "main",
-  },
-  {
-    id: "planner",
-    label: "Planner App",
-    subtitle: "Project planning, timelines & tasks",
-    emoji: "📅",
-    color: "#2563EB",   // blue
-    dest: "https://sh-strategy-planner.vercel.app/",
-  },
-  {
-    id: "leads",
-    label: "Leads & Social",
-    subtitle: "Lead pipeline & social media hub",
-    emoji: "🎯",
-    color: "#7C3AED",   // purple
-    dest: "https://sh-marketing-hub.vercel.app/",
-  },
-];
-
-function AppHubScreen({ user, onSelect }) {
-  const firstName = user?.name?.split(" ")[0] || "there";
-  return (
-    <div style={{
-      ...S.app,
-      minHeight: "100vh",
-      alignItems: "center",
-      justifyContent: "center",
-      background: BRAND.navy,
-    }}>
-      <div style={{
-        width: "100%",
-        maxWidth: 430,
-        minHeight: "100vh",
-        background: BRAND.offWhite,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "40px 20px 32px",
-        boxSizing: "border-box",
-      }}>
-        {/* Logo */}
-        <img
-          src={`data:image/png;base64,${LOGO_WIDE_B64}`}
-          alt="S&H Services"
-          style={{ width: 180, marginBottom: 18 }}
-        />
-
-        {/* Greeting */}
-        <div style={{ fontSize: 22, fontWeight: 800, color: BRAND.navy, marginBottom: 4, textAlign: "center" }}>
-          Welcome back, {firstName}!
-        </div>
-        <div style={{ fontSize: 14, color: BRAND.muted, marginBottom: 32, textAlign: "center" }}>
-          Where would you like to go?
-        </div>
-
-        {/* App tiles */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
-          {APP_HUB_APPS.map(app => (
-            <button
-              key={app.id}
-              onClick={() => onSelect(app.dest)}
-              style={{
-                width: "100%",
-                background: app.color,
-                border: "none",
-                borderRadius: 16,
-                padding: "20px 22px",
-                display: "flex",
-                alignItems: "center",
-                gap: 18,
-                cursor: "pointer",
-                boxShadow: "0 4px 16px rgba(27,58,107,0.18)",
-                transition: "transform 0.12s, box-shadow 0.12s",
-                textAlign: "left",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.025)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(27,58,107,0.28)"; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "0 4px 16px rgba(27,58,107,0.18)"; }}
-            >
-              {/* Icon circle */}
-              <span style={{
-                fontSize: 36,
-                lineHeight: 1,
-                flexShrink: 0,
-                width: 60,
-                height: 60,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}>
-                {app.emoji}
-              </span>
-
-              {/* Text */}
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 800, color: "#FFFFFF", lineHeight: 1.2 }}>
-                  {app.label}
-                </div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.75)", marginTop: 4, lineHeight: 1.4 }}>
-                  {app.subtitle}
-                </div>
-              </div>
-
-              {/* Arrow */}
-              <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, flexShrink: 0 }}>›</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Sign-out link */}
-        <button
-          onClick={() => onSelect("main")}   // default: go to main app
-          style={{ background: "none", border: "none", marginTop: 28, color: BRAND.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-        >
-          Skip — go to Jobs & Operations
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Business Rules & Governance ─────────────────────────────────────────────
 const BR_APPROVAL_THRESHOLD = 200;       // dollars — purchases at or above need dual-owner approval
@@ -7954,6 +7820,7 @@ function JobContracts({ jobId }) {
 
   const contracts = docs.filter(d => d.doc_type === "contract" || d.name?.toLowerCase().includes("contract"));
   const invoices  = docs.filter(d => d.doc_type === "invoice"  || d.name?.toLowerCase().includes("invoice"));
+  const estimates = docs.filter(d => d.doc_type === "estimate" || d.name?.toLowerCase().includes("estimate"));
 
   function DocRow({ doc, color, icon, label }) {
     return (
@@ -7993,6 +7860,13 @@ function JobContracts({ jobId }) {
         <>
           <div style={S.sect}>Invoices ({invoices.length})</div>
           {invoices.map(d => <DocRow key={d.id} doc={d} color="#7C3AED" icon="🧾" label="Invoice" />)}
+        </>
+      )}
+
+      {estimates.length > 0 && (
+        <>
+          <div style={S.sect}>Estimates ({estimates.length})</div>
+          {estimates.map(d => <DocRow key={d.id} doc={d} color="#D97706" icon="📐" label="Estimate" />)}
         </>
       )}
     </div>
@@ -10503,12 +10377,21 @@ function InvoiceGenerator({ jobs, user, onClose, onSaved }) {
 
       ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, 1600);
 
+      // Logo (loaded once, drawn into the header below)
+      const logoImg = new Image();
+      await new Promise(res => { logoImg.onload = res; logoImg.onerror = res; logoImg.src = `data:image/png;base64,${LOGO_B64}`; });
+
       // Header
       ctx.fillStyle = BRAND.navy; ctx.fillRect(0, 0, W, 90);
+      const logoSize = 60, logoX = pad, textX = pad + logoSize + 16;
+      if (logoImg.complete && logoImg.naturalWidth > 0) {
+        ctx.fillStyle = "#fff"; ctx.fillRect(logoX, (90 - logoSize) / 2, logoSize, logoSize);
+        ctx.drawImage(logoImg, logoX, (90 - logoSize) / 2, logoSize, logoSize);
+      }
       ctx.fillStyle = "#fff"; ctx.font = "bold 28px Inter, sans-serif";
-      ctx.fillText("S&H SERVICES SPOKANE LLC", pad, 38);
+      ctx.fillText("S&H SERVICES SPOKANE LLC", textX, 38);
       ctx.font = "13px Inter, sans-serif"; ctx.fillStyle = BRAND.gold;
-      ctx.fillText("(509) 903-5744  ·  shservicesspokane.com  ·  License #SHSERVS771DR", pad, 62);
+      ctx.fillText("(509) 903-5744  ·  shservicesspokane.com  ·  License #SHSERVS771DR", textX, 62);
 
       // Invoice title + number
       ctx.fillStyle = BRAND.navy; ctx.font = "bold 22px Inter, sans-serif";
@@ -11382,6 +11265,527 @@ function ContractGenerator({ jobs, user, onClose, onSaved }) {
   );
 }
 
+// ─── Estimate / Bid Generator ─────────────────────────────────────────────────
+// A job estimate / bid is intentionally kept separate from an Invoice:
+// no payment schedule, no signature step, and it always carries a clear
+// "this is an estimate, not an invoice" disclaimer on the generated document.
+function EstimateGenerator({ jobs, user, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    jobId: "", clientName: "", clientAddress: "", clientPhone: "",
+    estimateNumber: "EST-" + String(Date.now()).slice(-5),
+    estimateDate: new Date().toISOString().slice(0,10),
+    validDays: "30",
+    lineItems: [{ description: "", qty: "1", rate: "", amount: "" }],
+    notes: "",
+    taxRate: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
+  function setLine(i, k, v) {
+    setForm(f => {
+      const lines = [...f.lineItems];
+      lines[i] = { ...lines[i], [k]: v };
+      if (k === "qty" || k === "rate") {
+        const qty = parseFloat(k === "qty" ? v : lines[i].qty) || 0;
+        const rate = parseFloat(k === "rate" ? v : lines[i].rate) || 0;
+        lines[i].amount = (qty * rate).toFixed(2);
+      }
+      return { ...f, lineItems: lines };
+    });
+  }
+  function addLine() { setForm(f => ({ ...f, lineItems: [...f.lineItems, { description: "", qty: "1", rate: "", amount: "" }] })); }
+  function removeLine(i) { setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) })); }
+
+  function onJobSelect(jobId) {
+    const job = jobs.find(j => j.id === jobId);
+    if (job) {
+      setForm(f => ({
+        ...f, jobId,
+        clientName: job.customerName || "",
+        clientAddress: job.address || "",
+        clientPhone: job.customerPhone || "",
+        lineItems: job.scope
+          ? [{ description: job.scope.slice(0, 100), qty: "1", rate: "", amount: "" }]
+          : f.lineItems,
+      }));
+    } else { setF("jobId", jobId); }
+  }
+
+  const subtotal = form.lineItems.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+  const taxAmt = subtotal * (parseFloat(form.taxRate) || 0) / 100;
+  const total = subtotal + taxAmt;
+
+  async function saveEstimate() {
+    setSaving(true);
+    try {
+      const W = 850, pad = 50;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = 1500;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, 1500);
+
+      // Logo
+      const logoImg = new Image();
+      await new Promise(res => { logoImg.onload = res; logoImg.onerror = res; logoImg.src = `data:image/png;base64,${LOGO_B64}`; });
+
+      // Header
+      ctx.fillStyle = BRAND.navy; ctx.fillRect(0, 0, W, 90);
+      const logoSize = 60, logoX = pad, textX = pad + logoSize + 16;
+      if (logoImg.complete && logoImg.naturalWidth > 0) {
+        ctx.fillStyle = "#fff"; ctx.fillRect(logoX, (90 - logoSize) / 2, logoSize, logoSize);
+        ctx.drawImage(logoImg, logoX, (90 - logoSize) / 2, logoSize, logoSize);
+      }
+      ctx.fillStyle = "#fff"; ctx.font = "bold 28px Inter, sans-serif";
+      ctx.fillText("S&H SERVICES SPOKANE LLC", textX, 38);
+      ctx.font = "13px Inter, sans-serif"; ctx.fillStyle = BRAND.gold;
+      ctx.fillText("(509) 903-5744  ·  shservicesspokane.com  ·  License #SHSERVS771DR", textX, 62);
+
+      // Estimate title + number
+      ctx.fillStyle = BRAND.navy; ctx.font = "bold 22px Inter, sans-serif";
+      ctx.fillText("ESTIMATE / BID", pad, 128);
+      ctx.font = "13px Inter, sans-serif"; ctx.fillStyle = BRAND.muted;
+      ctx.fillText(form.estimateNumber, W - pad - ctx.measureText(form.estimateNumber).width, 128);
+
+      ctx.fillStyle = BRAND.gold; ctx.fillRect(pad, 138, W - pad*2, 2);
+
+      let y = 162;
+      ctx.font = "12px Inter, sans-serif";
+
+      function row2col(l1, v1, l2, v2) {
+        ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+        ctx.fillText(l1, pad, y);
+        ctx.fillStyle = "#111"; ctx.font = "12px Inter, sans-serif";
+        ctx.fillText(v1 || "—", pad + 130, y);
+        if (l2) {
+          ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+          ctx.fillText(l2, W/2, y);
+          ctx.fillStyle = "#111"; ctx.font = "12px Inter, sans-serif";
+          ctx.fillText(v2 || "—", W/2 + 130, y);
+        }
+        y += 20;
+      }
+
+      function section(label) {
+        y += 10;
+        ctx.fillStyle = BRAND.navy; ctx.font = "bold 13px Inter, sans-serif";
+        ctx.fillText(label, pad, y);
+        ctx.fillStyle = BRAND.border; ctx.fillRect(pad, y + 4, W - pad*2, 1);
+        y += 20; ctx.fillStyle = "#333"; ctx.font = "12px Inter, sans-serif";
+      }
+
+      const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      const fmtD = (d) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+
+      const validDaysNum = parseInt(form.validDays, 10) || 30;
+      const validUntilDate = new Date(new Date(form.estimateDate + "T00:00:00").getTime() + validDaysNum * 24 * 60 * 60 * 1000);
+      const validUntilStr = validUntilDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+      section("PREPARED FOR");
+      row2col("Client:", form.clientName, "Estimate Date:", fmtD(form.estimateDate));
+      row2col("Address:", form.clientAddress, "Valid Until:", validUntilStr);
+      row2col("Phone:", form.clientPhone, "Job #:", form.jobId || "—");
+
+      // Line items table
+      section("SCOPE OF WORK & LINE ITEMS");
+      ctx.fillStyle = BRAND.navy; ctx.fillRect(pad, y, W - pad*2, 24);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 11px Inter, sans-serif";
+      ctx.fillText("DESCRIPTION", pad + 8, y + 16);
+      ctx.fillText("QTY", W - 220, y + 16);
+      ctx.fillText("RATE", W - 160, y + 16);
+      ctx.fillText("AMOUNT", W - 90, y + 16);
+      y += 28;
+
+      form.lineItems.forEach((l, i) => {
+        ctx.fillStyle = i % 2 === 0 ? "#F8F9FB" : "#fff";
+        ctx.fillRect(pad, y - 6, W - pad*2, 22);
+        ctx.fillStyle = "#222"; ctx.font = "12px Inter, sans-serif";
+        ctx.fillText((l.description || "—").slice(0, 60), pad + 8, y + 8);
+        ctx.fillText(l.qty || "1", W - 220, y + 8);
+        ctx.fillText(l.rate ? `$${parseFloat(l.rate).toFixed(2)}` : "—", W - 160, y + 8);
+        ctx.fillText(l.amount ? `$${parseFloat(l.amount).toFixed(2)}` : "—", W - 90, y + 8);
+        y += 22;
+      });
+
+      y += 10;
+      ctx.fillStyle = BRAND.border; ctx.fillRect(pad, y, W - pad*2, 1); y += 16;
+
+      function totRow(label, val, bold) {
+        ctx.fillStyle = bold ? BRAND.navy : BRAND.muted;
+        ctx.font = bold ? "bold 13px Inter, sans-serif" : "12px Inter, sans-serif";
+        ctx.fillText(label, W - 230, y);
+        ctx.fillStyle = bold ? BRAND.navy : "#333";
+        ctx.fillText(val, W - pad - ctx.measureText(val).width, y);
+        y += 20;
+      }
+      totRow("Subtotal:", `$${subtotal.toFixed(2)}`);
+      if (form.taxRate) totRow(`Tax (${form.taxRate}%):`, `$${taxAmt.toFixed(2)}`);
+      totRow("ESTIMATED TOTAL:", `$${total.toFixed(2)}`, true);
+
+      if (form.notes) {
+        section("NOTES");
+        ctx.font = "12px Inter, sans-serif"; ctx.fillStyle = "#444";
+        const words = form.notes.split(" "); let line = ""; let cx = pad;
+        words.forEach(w => {
+          const t = line + w + " ";
+          if (ctx.measureText(t).width > W - pad*2) { ctx.fillText(line, cx, y); y += 18; line = w + " "; }
+          else line = t;
+        });
+        if (line) { ctx.fillText(line, cx, y); y += 18; }
+      }
+
+      // Estimate / Bid disclaimer — this is what keeps it distinct from an invoice
+      y += 16;
+      ctx.font = "11px Inter, sans-serif";
+      const disclaimer = `This is an ESTIMATE of costs for the described work — not a final invoice or fixed price. Costs can change if additional work, materials, or conditions not visible at the time of this estimate are found to be necessary once work begins; the client will be informed before any such additional cost is incurred. This estimate is valid until ${validUntilStr}. A client signature on this estimate authorizes S&H Services Spokane LLC to proceed with the work described at the price above, subject to the terms in this disclaimer — it is acceptance to proceed, not a fixed final price.`;
+      const dwords = disclaimer.split(" ");
+      const dlines = []; let dbuild = "";
+      dwords.forEach(w => {
+        const t = dbuild + w + " ";
+        if (ctx.measureText(t).width > W - pad*2 - 24 && dbuild !== "") { dlines.push(dbuild); dbuild = w + " "; }
+        else dbuild = t;
+      });
+      if (dbuild) dlines.push(dbuild);
+      const boxH = 32 + dlines.length * 15 + 10;
+
+      ctx.fillStyle = "#FFF7ED"; ctx.fillRect(pad, y, W - pad*2, boxH);
+      ctx.strokeStyle = "#FDBA74"; ctx.lineWidth = 1; ctx.strokeRect(pad, y, W - pad*2, boxH);
+      ctx.fillStyle = "#9A3412"; ctx.font = "bold 12px Inter, sans-serif";
+      ctx.fillText("THIS IS AN ESTIMATE / BID — NOT AN INVOICE", pad + 12, y + 20);
+      ctx.font = "11px Inter, sans-serif"; ctx.fillStyle = "#7C2D12";
+      let dy = y + 38; const dcx = pad + 12;
+      dlines.forEach(line => { ctx.fillText(line, dcx, dy); dy += 15; });
+      y += boxH + 20;
+
+      // Prepared by
+      ctx.fillStyle = BRAND.navy; ctx.fillRect(pad, y, W - pad*2, 1); y += 20;
+      ctx.font = "11px Inter, sans-serif"; ctx.fillStyle = BRAND.muted;
+      ctx.fillText(`Prepared by ${user.name}  |  S&H Services Spokane LLC  |  ${today}`, pad, y);
+      y += 40;
+
+      // Footer
+      ctx.fillStyle = BRAND.navy; ctx.fillRect(0, y, W, 40);
+      ctx.fillStyle = "#fff"; ctx.font = "11px Inter, sans-serif";
+      ctx.fillText("S&H Services Spokane LLC  ·  Simple | Honest — Restoration Done Right!  ·  (509) 903-5744", pad, y + 25);
+
+      // Trim
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width = W; finalCanvas.height = y + 40;
+      finalCanvas.getContext("2d").drawImage(canvas, 0, 0);
+      const dataUrl = finalCanvas.toDataURL("image/png");
+
+      // Save to docs
+      const docName = `Estimate ${form.estimateNumber} — ${form.clientName}`;
+      await insertDoc({
+        id: "DOC-" + Date.now(),
+        name: docName,
+        description: `Estimate for ${form.jobId || "job"} · $${total.toFixed(2)} · Created ${today}`,
+        url: dataUrl,
+        file_type: "png",
+        doc_type: "estimate",
+        uploaded_by: user.name,
+        uploaded_at: new Date().toISOString(),
+      });
+
+      // Attach to job
+      if (form.jobId) {
+        const job = jobs.find(j => j.id === form.jobId);
+        if (job) {
+          const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
+          await updateJob(updated);
+        }
+      }
+
+      onSaved(form.jobId, form.estimateNumber);
+    } catch(e) {
+      console.error(e);
+      setToast({ msg: "Error saving estimate", ok: false });
+      setTimeout(() => setToast(null), 3000);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: BRAND.offWhite, zIndex: 50, display: "flex", flexDirection: "column" }}>
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+      <div style={{ ...S.header, gap: 10 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: BRAND.gold, fontSize: 24, cursor: "pointer", padding: 0 }}>‹</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: BRAND.white }}>📐 New Estimate / Bid</div>
+          <div style={{ fontSize: 11, color: "#7A9CC4" }}>Fill in details</div>
+        </div>
+      </div>
+
+      <div style={S.scroll}>
+        {/* Link to job */}
+        <div style={S.card}>
+          <label style={S.lbl}>Link to Job (auto-fills)</label>
+          <select style={{ ...S.input, appearance: "none" }} value={form.jobId} onChange={e => onJobSelect(e.target.value)}>
+            <option value="">— Select a job —</option>
+            {jobs.map(j => <option key={j.id} value={j.id}>{j.id} · {j.customerName}</option>)}
+          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+            <div>
+              <label style={S.lbl}>Estimate #</label>
+              <input style={S.input} value={form.estimateNumber} onChange={e => setF("estimateNumber", e.target.value)} />
+            </div>
+            <div>
+              <label style={S.lbl}>Estimate Date</label>
+              <input style={S.input} type="date" value={form.estimateDate} onChange={e => setF("estimateDate", e.target.value)} />
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <label style={S.lbl}>Valid For (days)</label>
+            <input style={S.input} type="number" min="1" value={form.validDays} onChange={e => setF("validDays", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Client */}
+        <div style={S.card}>
+          <label style={S.lbl}>Prepared For</label>
+          <input style={S.input} placeholder="Client name" value={form.clientName} onChange={e => setF("clientName", e.target.value)} />
+          <div style={{ marginTop: 10 }}><input style={S.input} placeholder="Address" value={form.clientAddress} onChange={e => setF("clientAddress", e.target.value)} /></div>
+          <div style={{ marginTop: 10 }}><PhoneInput placeholder="Phone" value={form.clientPhone} onChange={v => setF("clientPhone", v)} /></div>
+        </div>
+
+        {/* Line items — a description/qty/rate line for any type of job */}
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <label style={{ ...S.lbl, margin: 0 }}>Line Items</label>
+            <button onClick={addLine} style={{ background: BRAND.navy, border: "none", borderRadius: 7, color: "#fff", fontSize: 12, fontWeight: 700, padding: "4px 10px", cursor: "pointer" }}>+ Add</button>
+          </div>
+          {form.lineItems.map((l, i) => (
+            <div key={i} style={{ background: BRAND.offWhite, borderRadius: 9, padding: 10, marginBottom: 8 }}>
+              <input style={{ ...S.input, marginBottom: 7 }} placeholder="Description (materials, labor — any type of job)" value={l.description} onChange={e => setLine(i, "description", e.target.value)} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 6, alignItems: "center" }}>
+                <div>
+                  <label style={S.lbl}>Qty</label>
+                  <input style={S.input} type="number" min="0" value={l.qty} onChange={e => setLine(i, "qty", e.target.value)} />
+                </div>
+                <div>
+                  <label style={S.lbl}>Rate ($)</label>
+                  <input style={S.input} type="number" min="0" value={l.rate} onChange={e => setLine(i, "rate", e.target.value)} />
+                </div>
+                <div>
+                  <label style={S.lbl}>Amount</label>
+                  <input style={{ ...S.input, background: "#F1F5F9", color: BRAND.navy, fontWeight: 700 }} readOnly value={l.amount ? `$${parseFloat(l.amount).toFixed(2)}` : "—"} />
+                </div>
+                {form.lineItems.length > 1 && (
+                  <button onClick={() => removeLine(i)} style={{ background: "none", border: "none", color: "#DC2626", fontSize: 18, cursor: "pointer", marginTop: 16 }}>×</button>
+                )}
+              </div>
+            </div>
+          ))}
+          <div style={{ marginTop: 10 }}>
+            <label style={S.lbl}>Tax Rate (%)</label>
+            <input style={S.input} type="number" min="0" step="0.1" placeholder="0" value={form.taxRate} onChange={e => setF("taxRate", e.target.value)} />
+          </div>
+          <div style={{ ...S.card, background: BRAND.navy, border: "none", marginTop: 10, marginBottom: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 13, color: BRAND.gold, fontWeight: 700 }}>ESTIMATED TOTAL</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>${total.toFixed(2)}</span>
+            </div>
+            {form.taxRate && <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2 }}>Subtotal ${subtotal.toFixed(2)} + Tax ${taxAmt.toFixed(2)}</div>}
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div style={S.card}>
+          <label style={S.lbl}>Notes</label>
+          <textarea style={{ ...S.textarea, height: 72 }} placeholder="e.g. Assumes standard access, excludes permit fees…" value={form.notes} onChange={e => setF("notes", e.target.value)} />
+        </div>
+
+        <div style={{ ...S.card, background: "#FFF7ED", border: "1px solid #FDBA74" }}>
+          <div style={{ fontSize: 12, color: "#9A3412", fontWeight: 700 }}>⚠️ This will be saved as an ESTIMATE / BID</div>
+          <div style={{ fontSize: 11.5, color: "#7C2D12", marginTop: 4 }}>It's kept separate from Invoices and prints with a "not an invoice" disclaimer that costs can change if additional work is needed. Once saved, open it from the Estimates tab to have the client sign and accept it.</div>
+        </div>
+
+        <button style={{ ...S.btn("primary"), opacity: (form.clientName && !saving) ? 1 : 0.4 }} disabled={!form.clientName || saving} onClick={saveEstimate}>
+          {saving ? "Saving Estimate…" : "✓ Save Estimate / Bid"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Estimate Client Acceptance ────────────────────────────────────────────────
+// Lets the client who received an estimate/bid acknowledge and sign that they
+// agree to have S&H proceed with the described work. Signing is acceptance to
+// proceed at the estimated price — it does NOT lock in a final price, since
+// costs can still change if additional work turns out to be needed. This is
+// reached from the estimate's row in the Estimates tab, so it works whether
+// the client signs the moment the estimate is created or comes back later.
+function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
+  const canvasRef = useRef();
+  const [drawing, setDrawing] = useState(false);
+  const [hasSig, setHasSig] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const job = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
+  const [clientPrintedName, setClientPrintedName] = useState(job?.customerName || "");
+  const amountMatch = doc.description?.match(/\$([\d,]+\.\d{2})/);
+  const total = amountMatch ? amountMatch[1] : null;
+
+  function getPos(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+  function startDraw(e) { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext("2d"); const p = getPos(e, c); ctx.beginPath(); ctx.moveTo(p.x, p.y); setDrawing(true); setHasSig(true); }
+  function draw(e) { e.preventDefault(); if (!drawing) return; const c = canvasRef.current; const ctx = c.getContext("2d"); ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = BRAND.navy; const p = getPos(e, c); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  function endDraw(e) { e.preventDefault(); setDrawing(false); }
+  function clearSig() { const c = canvasRef.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); setHasSig(false); }
+
+  async function saveAcceptance() {
+    if (!hasSig) return;
+    setSaving(true);
+    try {
+      const W = 800, pad = 40;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = 700;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, 700);
+
+      const logoImg = new Image();
+      await new Promise(res => { logoImg.onload = res; logoImg.onerror = res; logoImg.src = `data:image/png;base64,${LOGO_B64}`; });
+
+      ctx.fillStyle = BRAND.navy; ctx.fillRect(0, 0, W, 80);
+      if (logoImg.complete && logoImg.naturalWidth > 0) {
+        ctx.fillStyle = "#fff"; ctx.fillRect(pad, 10, 60, 60);
+        ctx.drawImage(logoImg, pad, 10, 60, 60);
+      }
+      ctx.fillStyle = "#fff"; ctx.font = "bold 19px Inter, sans-serif";
+      ctx.fillText("CLIENT ACCEPTANCE OF ESTIMATE", pad + 76, 42);
+      ctx.font = "12px Inter, sans-serif"; ctx.fillStyle = BRAND.gold;
+      ctx.fillText("S&H Services Spokane LLC · (509) 903-5744", pad + 76, 64);
+
+      let y = 118;
+      ctx.fillStyle = "#111"; ctx.font = "13px Inter, sans-serif";
+      ctx.fillText(`Estimate: ${doc.name}`, pad, y); y += 22;
+      if (job) { ctx.fillText(`Job: ${job.id} · ${job.customerName}`, pad, y); y += 22; }
+      if (total) { ctx.fillText(`Estimated Total: $${total}`, pad, y); y += 22; }
+      y += 12;
+
+      // Acceptance statement — plain-language version of the estimate disclaimer
+      ctx.font = "11px Inter, sans-serif";
+      const statement = `By signing below, I acknowledge that the document referenced above is an ESTIMATE of costs for the described work — not a final invoice or fixed price. I authorize S&H Services Spokane LLC to proceed with the work described at the estimated price above. I understand that costs can change if additional work, materials, or conditions not visible at the time of this estimate are found to be necessary once work begins, and that I will be informed before any such additional cost is incurred.`;
+      const swords = statement.split(" ");
+      const slines = []; let sbuild = "";
+      swords.forEach(w => {
+        const t = sbuild + w + " ";
+        if (ctx.measureText(t).width > W - pad*2 - 24 && sbuild !== "") { slines.push(sbuild); sbuild = w + " "; }
+        else sbuild = t;
+      });
+      if (sbuild) slines.push(sbuild);
+      const boxH = 16 + slines.length * 16 + 12;
+
+      ctx.fillStyle = "#EFF6FF"; ctx.fillRect(pad, y, W - pad*2, boxH);
+      ctx.strokeStyle = "#BFDBFE"; ctx.lineWidth = 1; ctx.strokeRect(pad, y, W - pad*2, boxH);
+      ctx.fillStyle = "#1D4C92"; ctx.font = "11px Inter, sans-serif";
+      let sy = y + 20; const sx = pad + 12;
+      slines.forEach(line => { ctx.fillText(line, sx, sy); sy += 16; });
+      y += boxH + 26;
+
+      // Signature
+      ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+      ctx.fillText("CLIENT SIGNATURE", pad, y); y += 10;
+      const sigDataUrl = canvasRef.current.toDataURL("image/png");
+      const sigImg = new Image();
+      await new Promise(res => { sigImg.onload = res; sigImg.src = sigDataUrl; });
+      ctx.drawImage(sigImg, pad, y, 340, 100);
+      y += 106;
+      ctx.strokeStyle = "#333"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + 340, y); ctx.stroke();
+      y += 20;
+      ctx.fillStyle = "#333"; ctx.font = "12px Inter, sans-serif";
+      ctx.fillText(clientPrintedName || job?.customerName || "Client", pad, y);
+      y += 18;
+      ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
+      const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      ctx.fillText(`Signed ${today}  ·  Witnessed by ${user.name}`, pad, y);
+      y += 30;
+
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width = W; finalCanvas.height = y + 10;
+      finalCanvas.getContext("2d").drawImage(canvas, 0, 0);
+      const dataUrl = finalCanvas.toDataURL("image/png");
+
+      await insertDoc({
+        id: "DOC-" + Date.now(),
+        name: `[Client Accepted] ${doc.name}`,
+        description: `Client acceptance of ${doc.name}${job ? ` for ${job.id}` : ""} · Signed ${today}`,
+        url: dataUrl,
+        file_type: "png",
+        doc_type: "estimate",
+        uploaded_by: user.name,
+        uploaded_at: new Date().toISOString(),
+      });
+
+      if (job) {
+        const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
+        await updateJob(updated);
+      }
+
+      onDone();
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: BRAND.offWhite, zIndex: 55, display: "flex", flexDirection: "column" }}>
+      <div style={{ ...S.header, gap: 10 }}>
+        <button onClick={onCancel} style={{ background: "none", border: "none", color: BRAND.gold, fontSize: 24, cursor: "pointer", padding: 0 }}>‹</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: BRAND.white }}>✍️ Client Acceptance</div>
+          <div style={{ fontSize: 11, color: "#7A9CC4" }}>{doc.name}</div>
+        </div>
+      </div>
+
+      <div style={S.scroll}>
+        <div style={{ ...S.card, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy }}>{job?.customerName || "Client"}</div>
+          {job && <div style={{ fontSize: 11, color: BRAND.gold, fontWeight: 700, marginTop: 2 }}>{job.id}</div>}
+          {total && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 4 }}>Estimated Total: ${total}</div>}
+        </div>
+
+        <div style={{ ...S.card, background: "#FFF7ED", border: "1px solid #FDBA74" }}>
+          <div style={{ fontSize: 12.5, color: "#7C2D12", lineHeight: 1.5 }}>
+            By signing, the client acknowledges this is an <strong>estimate</strong> — not a final price — and authorizes S&H Services to proceed. <strong>Costs can change if additional work is needed</strong> once work begins; they'll be told before any extra cost is incurred.
+          </div>
+        </div>
+
+        <div style={S.card}>
+          <label style={S.lbl}>Client Printed Name</label>
+          <input style={S.input} placeholder={job?.customerName || "Client name"} value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
+        </div>
+
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <label style={{ ...S.lbl, margin: 0 }}>Client Signature</label>
+            {hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
+          </div>
+          <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 8 }}>Hand the device to the client to sign</div>
+          <div style={{ background: "#F8FAFF", border: `2px solid ${hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none" }}>
+            <canvas ref={canvasRef} width={760} height={180}
+              style={{ display: "block", width: "100%", height: 180, cursor: "crosshair" }}
+              onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+              onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+          </div>
+          <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={clearSig}>Clear</button>
+        </div>
+
+        <button style={{ ...S.btn("primary"), opacity: (hasSig && !saving) ? 1 : 0.4 }} disabled={!hasSig || saving} onClick={saveAcceptance}>
+          {saving ? "Saving…" : "✓ Save Client Acceptance"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Docs Tab ─────────────────────────────────────────────────────────────────
 function DocsTab({ user, jobs }) {
   const [docs, setDocs] = useState([]);
@@ -11522,7 +11926,7 @@ function DocsTab({ user, jobs }) {
           <div style={{ ...S.card, borderLeft: `4px solid ${BRAND.gold}` }}>
             <label style={S.lbl}>Document Type</label>
             <div style={S.pills}>
-              {[{v:"doc",l:"📁 General"},{v:"contract",l:"📝 Contract"},{v:"invoice",l:"💰 Invoice"}].map(t => (
+              {[{v:"doc",l:"📁 General"},{v:"contract",l:"📝 Contract"},{v:"invoice",l:"💰 Invoice"},{v:"estimate",l:"📐 Estimate"}].map(t => (
                 <button key={t.v} style={S.pill(form.docType === t.v, BRAND.navy)} onClick={() => setF("docType", t.v)}>{t.l}</button>
               ))}
             </div>
@@ -11620,7 +12024,7 @@ function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: BRAND.white, borderRadius: 14, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: BRAND.navy, marginBottom: 4 }}>
-          {isEmail ? "✉️ Email" : "💬 Text"} {docType === "contract" ? "Contract" : "Invoice"}
+          {isEmail ? "✉️ Email" : "💬 Text"} {docType === "contract" ? "Contract" : docType === "estimate" ? "Estimate" : "Invoice"}
         </div>
         <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 14 }}>{doc.name}</div>
         <div style={{ background: "#EFF6FF", borderRadius: 9, padding: "12px 14px", marginBottom: 16, border: "1px solid #BFDBFE" }}>
@@ -11663,6 +12067,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
   const [smsModal, setSmsModal] = useState(null);
   const [smsTo, setSmsTo] = useState("");
   const [creatingDoc, setCreatingDoc] = useState(false);
+  const [acceptingDoc, setAcceptingDoc] = useState(null);
   const allowDelete = canDelete(user);
 
   async function load() {
@@ -11721,7 +12126,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
 
       const subject = encodeURIComponent(`${doc.name} — S&H Services Spokane`);
       const body = encodeURIComponent(
-        `Hi,\n\nPlease find your ${docType === "contract" ? "contract" : "invoice"} from S&H Services Spokane attached to this email.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was just downloaded to your device — please attach it to this email before sending.\n\nThank you,\nS&H Services Spokane LLC\n(509) 903-5744\nshservicesspokane.com`
+        `Hi,\n\nPlease find your ${docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice"} from S&H Services Spokane attached to this email.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was just downloaded to your device — please attach it to this email before sending.\n\nThank you,\nS&H Services Spokane LLC\n(509) 903-5744\nshservicesspokane.com`
       );
       window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
       setEmailModal(null);
@@ -11754,7 +12159,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
 
       const phone = smsTo.replace(/\D/g, "");
       const msg = encodeURIComponent(
-        `Hi! Here is your ${docType === "contract" ? "contract" : "invoice"} from S&H Services Spokane:\n\n📄 ${doc.name}\n📅 Date: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was downloaded to your device — please attach it to this message.\n\nThank you!\n— S&H Services Spokane\n(509) 903-5744`
+        `Hi! Here is your ${docType === "contract" ? "contract" : docType === "estimate" ? "estimate" : "invoice"} from S&H Services Spokane:\n\n📄 ${doc.name}\n📅 Date: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nThe file was downloaded to your device — please attach it to this message.\n\nThank you!\n— S&H Services Spokane\n(509) 903-5744`
       );
       const smsUrl = /iphone|ipad|ipod/i.test(navigator.userAgent)
         ? `sms:${phone}&body=${msg}`
@@ -11801,14 +12206,26 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
           onSaved={() => { setCreatingDoc(false); load(); setToast({ msg: "Contract saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
         />
       )}
+      {creatingDoc && docType === "estimate" && (
+        <EstimateGenerator jobs={jobs} user={user}
+          onClose={() => setCreatingDoc(false)}
+          onSaved={() => { setCreatingDoc(false); load(); setToast({ msg: "Estimate saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+        />
+      )}
+      {acceptingDoc && (
+        <EstimateAcceptance doc={acceptingDoc} jobs={jobs} user={user}
+          onCancel={() => setAcceptingDoc(null)}
+          onDone={() => { setAcceptingDoc(null); load(); setToast({ msg: "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+        />
+      )}
 
       <div style={S.scroll}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>{icon} {title}</div>
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={load} style={{ background: "none", border: `1.5px solid ${BRAND.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 16 }}>🔄</button>
-            <button onClick={() => setCreatingDoc(true)} style={{ background: docType === "invoice" ? "#7C3AED" : "#16A34A", border: "none", borderRadius: 8, color: BRAND.white, fontWeight: 700, fontSize: 12, padding: "6px 12px", cursor: "pointer" }}>
-              {docType === "invoice" ? "🧾 Create Invoice" : "📋 Create Contract"}
+            <button onClick={() => setCreatingDoc(true)} style={{ background: docType === "invoice" ? "#7C3AED" : docType === "estimate" ? "#D97706" : "#16A34A", border: "none", borderRadius: 8, color: BRAND.white, fontWeight: 700, fontSize: 12, padding: "6px 12px", cursor: "pointer" }}>
+              {docType === "invoice" ? "🧾 Create Invoice" : docType === "estimate" ? "📐 Create Estimate" : "📋 Create Contract"}
             </button>
           </div>
         </div>
@@ -11818,16 +12235,25 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
             <div style={{ fontSize: 15, fontWeight: 700, color: BRAND.navy }}>No {title.toLowerCase()} yet</div>
             <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 4 }}>{emptyMsg}</div>
           </div>
-        ) : docs.map(doc => (
-          <div key={doc.id} style={{ ...S.card }}>
+        ) : docs.map(doc => {
+          const isAcceptedCopy = docType === "estimate" && doc.name?.startsWith("[Client Accepted]");
+          const hasAcceptedCopy = docType === "estimate" && !isAcceptedCopy &&
+            docs.some(d => d.name === `[Client Accepted] ${doc.name}`);
+          return (
+          <div key={doc.id} style={{ ...S.card, ...(isAcceptedCopy ? { borderLeft: "4px solid #16A34A" } : {}) }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ fontSize: 32, flexShrink: 0 }}>{icon}</div>
+              <div style={{ fontSize: 32, flexShrink: 0 }}>{isAcceptedCopy ? "✅" : icon}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: BRAND.navy, wordBreak: "break-word" }}>{doc.name}</div>
                 {doc.description && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>{doc.description}</div>}
                 <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 4 }}>
                   {doc.uploaded_by} · {fmtDate(doc.uploaded_at)}
                 </div>
+                {hasAcceptedCopy && (
+                  <div style={{ marginTop: 6 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: "#16A34A", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 5, padding: "2px 8px" }}>✓ Client Accepted</span>
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
                   <button onClick={() => open(doc)} style={{ background: BRAND.navy, border: "none", borderRadius: 7, color: BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                     {loadingUrl === doc.id ? "…" : "👁 View"}
@@ -11841,12 +12267,18 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
                   <button onClick={() => { setSmsModal(doc); setSmsTo(""); }} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                     💬 Text
                   </button>
+                  {docType === "estimate" && !isAcceptedCopy && (
+                    <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
+                      {hasAcceptedCopy ? "✍️ Sign Again" : "✍️ Client Accept"}
+                    </button>
+                  )}
                   {allowDelete && <button onClick={() => remove(doc.id)} style={{ background: "none", border: `1px solid ${BRAND.border}`, borderRadius: 7, color: "#DC2626", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>Delete</button>}
                 </div>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -20459,7 +20891,6 @@ export default function App() {
     // OS-level alerts for new tasks/approvals even with the app closed.
     if (u?.name) subscribeToPush(u.name);
   }
-  const [showAppHub, setShowAppHub] = useState(true); // show app-selector splash after login
   const [tab, setTab]     = useState("home");
   const [jobs, setJobs]   = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20881,13 +21312,6 @@ export default function App() {
     <AppErrorBoundary><div style={S.app}><LoginScreen onLogin={setUser} /></div></AppErrorBoundary>
   );
 
-  // ── App Hub Splash ── shown right after login, before policy gate + main app
-  if (showAppHub) return (
-    <AppErrorBoundary>
-      <AppHubScreen user={user} onSelect={(dest) => { setShowAppHub(false); if (dest !== "main") window.open(dest, "_blank"); }} />
-    </AppErrorBoundary>
-  );
-
   const tabs = [
     { id:"home",      label:"Home",      icon:"🏠" },
     { id:"tasks",     label:"My Tasks",  icon:"✅" },
@@ -20897,6 +21321,7 @@ export default function App() {
     { id:"receipts",  label:"Receipts",  icon:"🧾" },
     { id:"contracts", label:"Contracts", icon:"📝" },
     { id:"invoices",  label:"Invoices",  icon:"💰" },
+    { id:"estimates", label:"Estimates", icon:"📐" },
     { id:"rates",     label:"Rates",     icon:"📊" },
     { id:"materials", label:"Materials", icon:"🔍" },
     { id:"mileage",   label:"Drive & Time",   icon:"⏱" },
@@ -21306,6 +21731,7 @@ export default function App() {
             {tab==="tasks"     && <MyTasksTab jobs={jobs} user={user} onRefresh={loadJobs} />}
             {tab==="leads"     && <LeadsTab user={user} />}
             {tab==="invoices"  && <DocTypeTab user={user} jobs={jobs} docType="invoice" title="Invoices" icon="💰" emptyMsg="No invoices yet. Upload one from the Docs tab." />}
+            {tab==="estimates" && <DocTypeTab user={user} jobs={jobs} docType="estimate" title="Estimates" icon="📐" emptyMsg="No estimates yet. Tap Create Estimate above to put together a bid for a client." />}
             {tab==="backup"    && <BackupTab jobs={jobs} user={user} />}
             {tab==="admin"     && <AdminTab user={user} onShowPolicy={() => setShowPolicyModal(true)} />}
             {tab==="companyinfo" && <CompanyInfoTab user={user} />}
