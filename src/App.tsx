@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26d — Email/Text for Invoices, Contracts & Estimates now opens pre-filled with a link (/view-doc/:id) instead of download-and-attach";
+const BUILD_STAMP = "2026-07-26e — Admin tab: per-employee Visible Tabs picker (add/remove which tabs each person can see)";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -724,7 +724,7 @@ const CAN_ADMIN = ["brandon", "erik", "matt"];
 let _permissions = { ...DEFAULT_PERMISSIONS };
 async function loadPermissions() {
   try {
-    const rows = await sbFetch("permissions?select=user_id,can_delete,can_see_dollars,can_backup,can_submit_jobs,can_edit_jobs,can_view_contacts,can_view_docs");
+    const rows = await sbFetch("permissions?select=user_id,can_delete,can_see_dollars,can_backup,can_submit_jobs,can_edit_jobs,can_view_contacts,can_view_docs,visible_tabs");
     if (rows?.length) {
       const map = {};
       rows.forEach(r => {
@@ -736,6 +736,7 @@ async function loadPermissions() {
           canEditJobs:     r.can_edit_jobs,
           canViewContacts: r.can_view_contacts,
           canViewDocs:     r.can_view_docs,
+          visibleTabIds:   Array.isArray(r.visible_tabs) ? r.visible_tabs : null,
         };
       });
       _permissions = { ...DEFAULT_PERMISSIONS, ...map };
@@ -753,6 +754,7 @@ async function savePermission(userId, perms, updatedBy) {
       can_edit_jobs:     perms.canEditJobs,
       can_view_contacts: perms.canViewContacts,
       can_view_docs:     perms.canViewDocs,
+      visible_tabs:      Array.isArray(perms.visibleTabIds) ? perms.visibleTabIds : null,
       updated_by: updatedBy,
       updated_at: new Date().toISOString(),
     }),
@@ -811,6 +813,55 @@ function canEditJobs(user)     { return !!getPerms(user).canEditJobs; }
 function canViewContacts(user) { return !!getPerms(user).canViewContacts; }
 function canViewDocs(user)     { return !!getPerms(user).canViewDocs; }
 function canAdmin(user)        { return CAN_ADMIN.includes(user?.id); }
+
+// ─── Per-user tab visibility ───────────────────────────────────────────────────
+// Single canonical list of every tab in the app — used both to build the
+// nav/home-grid for the signed-in user AND to drive the "Visible Tabs"
+// picker in the Admin tab, so the two can never drift out of sync.
+const ALL_TABS = [
+  { id:"home",        label:"Home",        icon:"🏠" },
+  { id:"tasks",       label:"My Tasks",    icon:"✅" },
+  { id:"jobs",        label:"Jobs",        icon:"📋" },
+  { id:"submit",      label:"Add New Job", icon:"➕" },
+  { id:"calendar",    label:"Schedule",    icon:"📅" },
+  { id:"receipts",    label:"Receipts",    icon:"🧾" },
+  { id:"contracts",   label:"Contracts",   icon:"📝" },
+  { id:"invoices",    label:"Invoices",    icon:"💰" },
+  { id:"estimates",   label:"Estimates",   icon:"📐" },
+  { id:"rates",       label:"Rates",       icon:"📊" },
+  { id:"materials",   label:"Materials",   icon:"🔍" },
+  { id:"mileage",     label:"Drive & Time", icon:"⏱" },
+  { id:"costcalc",    label:"Cost Calc",   icon:"🧮" },
+  { id:"leads",       label:"Leads",       icon:"🎯" },
+  { id:"contacts",    label:"Contacts",    icon:"👥" },
+  { id:"admin",       label:"Admin",       icon:"⚙️" },
+  { id:"backup",      label:"Backup",      icon:"💾" },
+  { id:"docs",        label:"Docs",        icon:"📁" },
+  { id:"companyinfo", label:"Company Info", icon:"🏢" },
+];
+// These are gated by the hardcoded admin allowlist (CAN_ADMIN), not by the
+// per-user picker — never offered as a checkbox, and always hidden from
+// non-admins no matter what's toggled on.
+const ADMIN_ONLY_TAB_IDS = ["admin", "companyinfo"];
+// Always shown to everyone — there needs to be a landing page, so this isn't
+// offered as something that can be hidden.
+const ALWAYS_VISIBLE_TAB_IDS = ["home"];
+// The subset of tabs an admin can actually toggle per employee.
+const CUSTOMIZABLE_TABS = ALL_TABS.filter(t => !ADMIN_ONLY_TAB_IDS.includes(t.id) && !ALWAYS_VISIBLE_TAB_IDS.includes(t.id));
+
+// Builds the actual tab list a signed-in user sees. `visibleTabIds` on their
+// permissions row is null by default (unrestricted — sees everything); once
+// an admin picks specific tabs for them, only those (plus Home, plus Admin/
+// Company Info if they qualify) are shown.
+function getUserTabs(user) {
+  const restriction = getPerms(user).visibleTabIds;
+  return ALL_TABS.filter(t => {
+    if (ADMIN_ONLY_TAB_IDS.includes(t.id)) return canAdmin(user);
+    if (ALWAYS_VISIBLE_TAB_IDS.includes(t.id)) return true;
+    if (Array.isArray(restriction)) return restriction.includes(t.id);
+    return true;
+  });
+}
 
 const JOB_TYPES = [
   { value: "water",        label: "Water",        icon: "💧", color: "#2563EB" },
@@ -16420,6 +16471,27 @@ function AdminTab({ user, onShowPolicy }) {
     }));
   }
 
+  // Toggling a tab off for the first time switches that user from
+  // "unrestricted" (visibleTabIds: null) to an explicit list — starting
+  // from every customizable tab so the one they just tapped is the only
+  // change, rather than suddenly hiding everything else too.
+  function toggleTab(userId, tabId) {
+    setLocalPerms(prev => {
+      const current = prev[userId] || {};
+      const baseline = Array.isArray(current.visibleTabIds)
+        ? current.visibleTabIds
+        : CUSTOMIZABLE_TABS.map(t => t.id);
+      const nextList = baseline.includes(tabId)
+        ? baseline.filter(id => id !== tabId)
+        : [...baseline, tabId];
+      return { ...prev, [userId]: { ...current, visibleTabIds: nextList } };
+    });
+  }
+
+  function resetTabsToAll(userId) {
+    setLocalPerms(prev => ({ ...prev, [userId]: { ...prev[userId], visibleTabIds: null } }));
+  }
+
   async function saveUser(userId) {
     setSaving(s => ({ ...s, [userId]: true }));
     try {
@@ -16824,9 +16896,10 @@ function AdminTab({ user, onShowPolicy }) {
 
               {isAdmin ? (
                 <div style={{ fontSize: 12, color: BRAND.muted, fontStyle: "italic", padding: "8px 0" }}>
-                  Admin accounts have all permissions and cannot be restricted.
+                  Admin accounts have all permissions and see every tab — can't be restricted.
                 </div>
               ) : (
+                <>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {PERMISSION_DEFS.map(p => {
                     const enabled = !!perms[p.key];
@@ -16844,6 +16917,41 @@ function AdminTab({ user, onShowPolicy }) {
                     );
                   })}
                 </div>
+
+                {/* Visible Tabs picker */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BRAND.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: BRAND.navy }}>📱 Visible Tabs</div>
+                    {Array.isArray(perms.visibleTabIds) && (
+                      <button onClick={() => resetTabsToAll(u.id)} style={{ background: "none", border: "none", color: BRAND.blue, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                        Show All
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: BRAND.muted, marginBottom: 8 }}>
+                    {Array.isArray(perms.visibleTabIds)
+                      ? `Only the highlighted tabs below are shown to ${u.name.split(" ")[0]}.`
+                      : `${u.name.split(" ")[0]} currently sees every tab. Tap one below to start restricting.`}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {CUSTOMIZABLE_TABS.map(t => {
+                      const restricted = Array.isArray(perms.visibleTabIds);
+                      const shown = restricted ? perms.visibleTabIds.includes(t.id) : true;
+                      return (
+                        <button key={t.id} onClick={() => toggleTab(u.id, t.id)} style={{
+                          display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 99,
+                          border: `1.5px solid ${shown ? "#16A34A" : BRAND.border}`,
+                          background: shown ? "#F0FDF4" : BRAND.offWhite,
+                          color: shown ? "#15803D" : BRAND.muted,
+                          fontSize: 12, fontWeight: 600, cursor: "pointer",
+                        }}>
+                          <span>{t.icon}</span><span>{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                </>
               )}
 
               {/* Password reset */}
@@ -21635,27 +21743,7 @@ export default function App() {
     <AppErrorBoundary><div style={S.app}><LoginScreen onLogin={setUser} /></div></AppErrorBoundary>
   );
 
-  const tabs = [
-    { id:"home",      label:"Home",      icon:"🏠" },
-    { id:"tasks",     label:"My Tasks",  icon:"✅" },
-    { id:"jobs",      label:"Jobs",      icon:"📋" },
-    { id:"submit",    label:"Add New Job", icon:"➕" },
-    { id:"calendar",  label:"Schedule",  icon:"📅" },
-    { id:"receipts",  label:"Receipts",  icon:"🧾" },
-    { id:"contracts", label:"Contracts", icon:"📝" },
-    { id:"invoices",  label:"Invoices",  icon:"💰" },
-    { id:"estimates", label:"Estimates", icon:"📐" },
-    { id:"rates",     label:"Rates",     icon:"📊" },
-    { id:"materials", label:"Materials", icon:"🔍" },
-    { id:"mileage",   label:"Drive & Time",   icon:"⏱" },
-    { id:"costcalc",  label:"Cost Calc", icon:"🧮" },
-    { id:"leads",     label:"Leads",     icon:"🎯" },
-    { id:"contacts",  label:"Contacts",  icon:"👥" },
-    { id:"admin",     label:"Admin",     icon:"⚙️" },
-    { id:"backup",    label:"Backup",    icon:"💾" },
-    { id:"docs",      label:"Docs",      icon:"📁" },
-    ...(canAdmin(user) ? [{ id:"companyinfo", label:"Company Info", icon:"🏢" }] : []),
-  ];
+  const tabs = getUserTabs(user);
   const homeGridTabs = tabs.filter(t => t.id !== "home");
 
   return (
