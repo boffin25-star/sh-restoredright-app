@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26e — Admin tab: per-employee Visible Tabs picker (add/remove which tabs each person can see)";
+const BUILD_STAMP = "2026-07-26i — New employees get an automatic Erik walkthrough (clock in, mileage, receipts, jobs) right after their first login";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -964,6 +964,41 @@ const BR_POLICY_VERSION = "1.0";
 function brGetOtherOwner(userName) {
   return BR_CO_OWNERS.find(n => n !== userName) || null;
 }
+
+// Fired when a client accepts an estimate — in person (EstimateAcceptance)
+// or via the remote sign-link (PublicEstimateAcceptPage). Flips the job
+// from "Estimate" to "Contracted" in the Jobs tab, and drops a high-priority
+// "schedule this job" task + push notification to both owners so an
+// acceptance never quietly sits there unscheduled.
+async function notifyOwnersToScheduleJob(job, { contextLabel, createdBy }) {
+  if (!job?.id) return;
+  try {
+    await updateJobField(job.id, "is_estimate", false);
+  } catch (e) { console.error(e); }
+
+  const today = new Date().toISOString().slice(0, 10);
+  await Promise.all(BR_CO_OWNERS.map(owner =>
+    insertStandaloneTask({
+      id: `SCHEDULE-${job.id}-${Date.now()}-${owner}`,
+      title: `📅 Schedule job — ${job.customerName || "Client"}`,
+      description: `${contextLabel} for ${job.customerName || "this client"}. Get it on the calendar.`,
+      assigned_to: owner,
+      date_assigned: today,
+      date_started: "", follow_up_date: "", completed_date: "",
+      status: "Pending", priority: "high",
+      job_id: job.id, job_customer: job.customerName || "", job_address: job.address || "", job_type: job.jobType || "",
+      created_by: createdBy || "System",
+      created_at: new Date().toISOString(),
+    }).catch(e => console.error(e))
+  ));
+
+  pushToUsers(BR_CO_OWNERS, {
+    title: "📅 Schedule this job",
+    body: `${job.customerName || "A client"} accepted their estimate — time to get it on the calendar.`,
+    url: "/",
+    tag: "schedule-job",
+  });
+}
 function brFmtMoney(n) {
   return "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -1706,13 +1741,30 @@ function TabIconButton({ tab, active, onClick, badge }) {
 
 // ─── Home Screen — grid of all tabs as circular card-style icons, shown as
 // the landing page. Tapping any tile navigates straight to that tab.
-function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder }) {
+function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQuickAction }) {
+  const [showQuickActions, setShowQuickActions] = useState(false);
   return (
     <div style={{ ...S.scroll, background: BRAND.offWhite }}>
+      {showQuickActions && (
+        <QuickActionsPanel
+          user={user} jobs={jobs || []}
+          onClose={() => setShowQuickActions(false)}
+          onNavigate={(action) => { setShowQuickActions(false); onQuickAction(action); }}
+        />
+      )}
       <div style={{ textAlign: "center", marginBottom: 16, marginTop: 4 }}>
         <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 160, marginBottom: 8 }} />
         <div style={{ fontSize: 13, color: BRAND.muted, fontWeight: 600 }}>Hi {user?.name?.split(" ")[0]}, what would you like to do?</div>
       </div>
+
+      <button onClick={() => setShowQuickActions(true)} style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%",
+        background: BRAND.navy, border: "none", borderRadius: 12, color: BRAND.white,
+        fontWeight: 800, fontSize: 14, padding: "14px 16px", cursor: "pointer", marginBottom: 14,
+        boxShadow: "0 2px 8px rgba(29,76,146,0.25)",
+      }}>
+        <span style={{ fontSize: 18 }}>⚡</span> Quick Actions — Clock In/Out, Mileage, Receipts
+      </button>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
         {tabs.map(t => {
@@ -1748,6 +1800,127 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder }) {
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick Actions panel ────────────────────────────────────────────────────────
+// One-tap access from the Home screen to the three things field crew do
+// constantly: clock in/out, start a mileage trip, and log a receipt.
+// Clock in/out is fully self-contained here (it's just a simple time_entries
+// row, safe to handle inline). Mileage and Receipts are more involved
+// (mileage in particular runs a live GPS watch that only exists as long as
+// the Mileage tab itself is mounted), so those two instead jump straight to
+// their real tab and auto-trigger the action on arrival, via onNavigate.
+function QuickActionsPanel({ user, jobs, onClose, onNavigate }) {
+  const [loading, setLoading] = useState(true);
+  const [activeEntry, setActiveEntry] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [clockJobId, setClockJobId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await sbFetch(`time_entries?user_name=eq.${encodeURIComponent(user.name)}&order=clock_in.desc&limit=5`);
+        const open = (rows || []).find(r => !r.clock_out);
+        if (open) {
+          setActiveEntry(open);
+          setClockJobId(open.job_id || "");
+          setElapsed(Math.floor((Date.now() - new Date(open.clock_in).getTime()) / 1000));
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, [user.name]);
+
+  useEffect(() => {
+    if (activeEntry) timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    else clearInterval(timerRef.current);
+    return () => clearInterval(timerRef.current);
+  }, [activeEntry]);
+
+  function fmtElapsed(secs) {
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+    return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  async function toggleClock() {
+    setBusy(true);
+    try {
+      if (activeEntry) {
+        const now = new Date().toISOString();
+        const mins = Math.round(elapsed / 60);
+        await sbFetch(`time_entries?id=eq.${activeEntry.id}`, { method: "PATCH", body: JSON.stringify({ clock_out: now, duration_minutes: mins }) });
+        setActiveEntry(null); setElapsed(0);
+        setToast({ msg: `Clocked out — ${mins}m logged`, ok: true });
+      } else {
+        const job = jobs.find(j => j.id === clockJobId);
+        const entry = { id: "TE-" + Date.now(), job_id: clockJobId || null, job_customer: job?.customerName || null, user_name: user.name, clock_in: new Date().toISOString(), clock_out: null, duration_minutes: null, notes: "" };
+        await sbFetch("time_entries", { method: "POST", body: JSON.stringify(entry) });
+        setActiveEntry(entry); setElapsed(0);
+        setToast({ msg: `Clocked in${job ? " on " + job.customerName : ""}`, ok: true });
+      }
+    } catch {
+      setToast({ msg: "Something went wrong", ok: false });
+    }
+    setTimeout(() => setToast(null), 3000);
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60, display: "flex", alignItems: "flex-end" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: BRAND.offWhite, borderTopLeftRadius: 20, borderTopRightRadius: 20, width: "100%", maxWidth: 520, margin: "0 auto", padding: 20, paddingBottom: 28, maxHeight: "85vh", overflowY: "auto" }}>
+        {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+        <div style={{ width: 40, height: 4, background: BRAND.border, borderRadius: 99, margin: "0 auto 16px" }} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>⚡ Quick Actions</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: BRAND.muted, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* Clock In/Out — fully inline, no navigation needed */}
+        <div style={{ ...S.card, background: activeEntry ? "#F0FDF4" : BRAND.white, border: `1.5px solid ${activeEntry ? "#BBF7D0" : BRAND.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy }}>⏱ {activeEntry ? "Clocked In" : "Clock In / Out"}</div>
+              {activeEntry ? (
+                <div style={{ fontSize: 12, color: "#15803D", marginTop: 2 }}>{fmtElapsed(elapsed)} elapsed{activeEntry.job_customer ? ` · ${activeEntry.job_customer}` : ""}</div>
+              ) : (
+                <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>{loading ? "Checking status…" : "Not clocked in"}</div>
+              )}
+            </div>
+            <button onClick={toggleClock} disabled={busy || loading} style={{ background: activeEntry ? "#DC2626" : "#16A34A", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 12, padding: "8px 14px", cursor: "pointer", opacity: (busy || loading) ? 0.6 : 1, flexShrink: 0 }}>
+              {activeEntry ? "Clock Out" : "Clock In"}
+            </button>
+          </div>
+          {!activeEntry && !loading && (
+            <select value={clockJobId} onChange={e => setClockJobId(e.target.value)} style={{ ...S.input, marginTop: 10, appearance: "none" }}>
+              <option value="">— No specific job —</option>
+              {jobs.map(j => <option key={j.id} value={j.id}>{j.id} · {j.customerName}</option>)}
+            </select>
+          )}
+        </div>
+
+        {/* Mileage — jumps to the real tab and auto-starts tracking there */}
+        <button onClick={() => onNavigate("startTrip")} style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: `1.5px solid ${BRAND.border}`, background: BRAND.white }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy }}>🚗 Start Mileage Trip</div>
+            <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>Opens live GPS tracking</div>
+          </div>
+          <span style={{ fontSize: 20, color: BRAND.muted }}>›</span>
+        </button>
+
+        {/* Receipt — jumps to the real tab with the Add form already open */}
+        <button onClick={() => onNavigate("addReceipt")} style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: `1.5px solid ${BRAND.border}`, background: BRAND.white, marginBottom: 0 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy }}>🧾 Add Receipt</div>
+            <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>Snap a photo or enter manually</div>
+          </div>
+          <span style={{ fontSize: 20, color: BRAND.muted }}>›</span>
+        </button>
       </div>
     </div>
   );
@@ -2223,7 +2396,7 @@ function LoginScreen({ onLogin }) {
         await updateEmployee(pendingUser.id, { cellPhone: cellPhone.trim(), email: email.trim() }).catch(() => {});
         await upsertEmployeeContact({ ...emp, cellPhone: cellPhone.trim(), email: email.trim() }, pendingUser.name).catch(() => {});
       }
-      onLogin(pendingUser);
+      onLogin(pendingUser, { firstLogin: true });
     } catch (e) {
       setSetupError("Could not save: " + (e?.message?.slice(0,140) || "check your connection and try again."));
     }
@@ -11661,6 +11834,105 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
   );
 }
 
+// ─── Signature capture (shared, mobile-safe) ───────────────────────────────────
+// A signature canvas that actually works reliably on phones. Two real bugs
+// this avoids, both invisible in desktop testing:
+//  1. React's onTouch* JSX props can end up attached as passive listeners on
+//     some browsers, which silently no-ops e.preventDefault() — the page
+//     then scrolls under the finger mid-signature instead of drawing, so
+//     nothing visible ends up on the canvas. Fixed by attaching touch
+//     listeners directly with { passive: false }.
+//  2. Setting a canvas's CSS width to "100%" while its width/height
+//     attributes stay fixed makes the browser stretch the drawing buffer,
+//     so strokes land in the wrong place (or appear not to show up at all
+//     on narrow phone screens). Fixed by sizing the canvas's actual pixel
+//     buffer to match its rendered size (with devicePixelRatio for
+//     crispness) whenever it mounts.
+function useSignaturePad() {
+  const canvasRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [hasSig, setHasSig] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+
+    function sizeCanvas() {
+      const rect = wrap.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = BRAND.navy;
+    }
+    sizeCanvas();
+
+    function posFromEvent(e) {
+      const rect = canvas.getBoundingClientRect();
+      const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+      return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+    }
+    function start(e) {
+      e.preventDefault();
+      drawing = true;
+      const p = posFromEvent(e);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+    }
+    function move(e) {
+      if (!drawing) return;
+      e.preventDefault();
+      const p = posFromEvent(e);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      setHasSig(true);
+    }
+    function stop(e) {
+      if (drawing && e) e.preventDefault();
+      drawing = false;
+    }
+
+    canvas.addEventListener("mousedown", start);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", stop);
+    canvas.addEventListener("touchstart", start, { passive: false });
+    canvas.addEventListener("touchmove", move, { passive: false });
+    canvas.addEventListener("touchend", stop, { passive: false });
+    canvas.addEventListener("touchcancel", stop, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("mousedown", start);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", stop);
+      canvas.removeEventListener("touchstart", start);
+      canvas.removeEventListener("touchmove", move);
+      canvas.removeEventListener("touchend", stop);
+      canvas.removeEventListener("touchcancel", stop);
+    };
+  }, []);
+
+  function clear() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSig(false);
+  }
+
+  function toDataURL() {
+    return canvasRef.current ? canvasRef.current.toDataURL("image/png") : null;
+  }
+
+  return { canvasRef, wrapRef, hasSig, clear, toDataURL };
+}
+
 // ─── Estimate Client Acceptance ────────────────────────────────────────────────
 // Shared canvas renderer for a client's acceptance of an estimate. Used both
 // by the in-person flow (EstimateAcceptance, below) and the remote link a
@@ -11745,9 +12017,7 @@ async function renderEstimateAcceptanceImage({ doc, job, total, clientPrintedNam
 // reached from the estimate's row in the Estimates tab, so it works whether
 // the client signs the moment the estimate is created or comes back later.
 function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
-  const canvasRef = useRef();
-  const [drawing, setDrawing] = useState(false);
-  const [hasSig, setHasSig] = useState(false);
+  const sigPad = useSignaturePad();
   const [saving, setSaving] = useState(false);
 
   const job = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
@@ -11755,21 +12025,11 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
   const amountMatch = doc.description?.match(/\$([\d,]+\.\d{2})/);
   const total = amountMatch ? amountMatch[1] : null;
 
-  function getPos(e, canvas) {
-    const rect = canvas.getBoundingClientRect();
-    const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
-  }
-  function startDraw(e) { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext("2d"); const p = getPos(e, c); ctx.beginPath(); ctx.moveTo(p.x, p.y); setDrawing(true); setHasSig(true); }
-  function draw(e) { e.preventDefault(); if (!drawing) return; const c = canvasRef.current; const ctx = c.getContext("2d"); ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = BRAND.navy; const p = getPos(e, c); ctx.lineTo(p.x, p.y); ctx.stroke(); }
-  function endDraw(e) { e.preventDefault(); setDrawing(false); }
-  function clearSig() { const c = canvasRef.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); setHasSig(false); }
-
   async function saveAcceptance() {
-    if (!hasSig) return;
+    if (!sigPad.hasSig) return;
     setSaving(true);
     try {
-      const sigDataUrl = canvasRef.current.toDataURL("image/png");
+      const sigDataUrl = sigPad.toDataURL();
       const dataUrl = await renderEstimateAcceptanceImage({
         doc, job, total, clientPrintedName, sigDataUrl,
         signedLine: `Witnessed by ${user.name}`,
@@ -11790,6 +12050,7 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
       if (job) {
         const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
         await updateJobPhotos(updated);
+        await notifyOwnersToScheduleJob(job, { contextLabel: "Estimate accepted (signed in person)", createdBy: user.name });
       }
 
       onDone();
@@ -11830,19 +12091,16 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
         <div style={S.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <label style={{ ...S.lbl, margin: 0 }}>Client Signature</label>
-            {hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
+            {sigPad.hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
           </div>
           <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 8 }}>Hand the device to the client to sign</div>
-          <div style={{ background: "#F8FAFF", border: `2px solid ${hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none" }}>
-            <canvas ref={canvasRef} width={760} height={180}
-              style={{ display: "block", width: "100%", height: 180, cursor: "crosshair" }}
-              onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-              onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+          <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
+            <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
           </div>
-          <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={clearSig}>Clear</button>
+          <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear</button>
         </div>
 
-        <button style={{ ...S.btn("primary"), opacity: (hasSig && !saving) ? 1 : 0.4 }} disabled={!hasSig || saving} onClick={saveAcceptance}>
+        <button style={{ ...S.btn("primary"), opacity: (sigPad.hasSig && !saving) ? 1 : 0.4 }} disabled={!sigPad.hasSig || saving} onClick={saveAcceptance}>
           {saving ? "Saving…" : "✓ Save Client Acceptance"}
         </button>
       </div>
@@ -12382,7 +12640,7 @@ async function deleteStandaloneReceipt(id) {
 }
 
 // ─── Standalone Receipts Tab ──────────────────────────────────────────────────
-function StandaloneReceiptsTab({ user }) {
+function StandaloneReceiptsTab({ user, autoAdd, onConsumeAutoAdd }) {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -12413,6 +12671,16 @@ function StandaloneReceiptsTab({ user }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Arrived here via the Home screen's "Add Receipt" quick action — open the
+  // Add form right away instead of making them tap + Add first.
+  useEffect(() => {
+    if (autoAdd) {
+      setAdding(true);
+      onConsumeAutoAdd?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function setEF(k, v) { setEditForm(f => ({ ...f, [k]: v })); }
@@ -14385,7 +14653,7 @@ function computeCost(miles, rateType, { defaultRate, ratePerMile, fuelPrice, mpg
   return m * rate;
 }
 
-function MileageTab({ user, jobs }) {
+function MileageTab({ user, jobs, autoStartTrip, onConsumeAutoStart }) {
   const isAdmin = canAdmin(user);
   const [mileageView, setMileageView] = useState("mileage"); // "mileage" | "timeclock"
   const [trips, setTrips] = useState([]);
@@ -14612,6 +14880,17 @@ function MileageTab({ user, jobs }) {
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+
+  // Arrived here via the Home screen's "Start Mileage Trip" quick action —
+  // jump straight into a live trip instead of making them tap Start again.
+  useEffect(() => {
+    if (autoStartTrip) {
+      setMileageView("mileage");
+      startTracking();
+      onConsumeAutoStart?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── GPS trip tracking ──
   async function startTracking() {
@@ -17161,12 +17440,16 @@ const CHATBOT_HELP = [
   { q: ["note", "update", "job update", "add note", "post update"], a: "Open a job and scroll to Job Updates at the bottom. Tap + Add, type or speak your update, and tap Post Update. It saves your name and the timestamp automatically." },
   { q: ["edit", "change", "update job", "modify job"], a: "Open the job from the Jobs tab, then tap ✏️ Edit in the top right corner. Change any fields and tap Save All Changes when done." },
   { q: ["change order", "extra work", "scope change"], a: "Open a job and scroll to the Change Orders section (purple). Tap + Add, enter the description and dollar amount, check Customer Approved if they've signed off, then save." },
-  { q: ["contract", "sign", "signature", "create contract"], a: "Go to 📁 Docs tab and tap the green 📋 Contract button to create a new signed contract. Both you and the customer sign with your finger. The signed contract saves to the job automatically." },
-  { q: ["invoice", "email", "text", "send", "print"], a: "Go to 📝 Contracts or 💰 Invoices tab. Each document has buttons for 👁 View, 🖨 Print, ✉️ Email, and 💬 Text. Email and Text will download the file then open your app." },
+  { q: ["contract", "sign", "signature", "create contract"], a: "For an in-person signature, go to 📁 Docs tab and tap the green 📋 Contract button — both you and the customer sign right on your phone. To have a customer review and sign an Estimate remotely without a visit, use the Estimates tab, then email or text them a secure signing link — no download or app needed on their end." },
+  { q: ["invoice", "email", "text", "send", "print"], a: "Go to 📝 Contracts, 💰 Invoices, or Estimates tab. Each document has buttons for 👁 View, 🖨 Print, ✉️ Email, and 💬 Text. Email and Text now open pre-filled with a secure link to the document — the client just taps it, no downloading or attaching files." },
+  { q: ["create estimate", "new estimate", "send estimate", "estimate generator", "bid"], a: "Go to the Estimates tab and tap + New Estimate. Add your line items and total, then save. From there you can email or text the client a secure link — they can review and sign it themselves on their own phone, and it comes back to you automatically once signed." },
+  { q: ["accept", "client sign", "remote sign", "client accepted"], a: "When a client signs an Estimate remotely through their emailed or texted link, the job automatically moves from Estimates into the Contracted group on the Jobs tab, and Brandon and Erik get a task to schedule it." },
+  { q: ["visible tabs", "hide tab", "restrict tabs", "who can see"], a: "In ⚙️ Admin tab, open a team member's card and use the Visible Tabs chips to control exactly which tabs they can see — green means shown, grey means hidden. Tap Show All to remove any restriction." },
+  { q: ["quick action", "clock in", "clock out", "start trip", "add receipt fast"], a: "On the Home screen, tap the ⚡ Quick Actions button at the top. From there you can clock in or out instantly, start a mileage trip with one tap, or jump straight to adding a receipt — no need to dig through tabs." },
   { q: ["contact", "customer", "add contact", "save contact", "new contact"], a: "Go to 👥 Contacts tab and tap + Add. You can add customers, suppliers, subcontractors, employees, adjusters and more. All phone/email fields are tappable." },
   { q: ["calendar", "schedule", "scheduled", "dates"], a: "Go to 📅 Schedule tab. Each job has its own color. Tap any day to see the jobs for that day. The legend below the calendar shows all active jobs this month with their date ranges." },
   { q: ["backup", "export", "download data", "spreadsheet", "excel"], a: "Go to 💾 Backup tab — only Brandon, Erik, and Matt can access it. Tap Download Excel Backup for a spreadsheet with all jobs, receipts, hours, and notes. Or Full Backup for Excel + JSON." },
-  { q: ["admin", "permission", "access", "restrict"], a: "Go to ⚙️ Admin tab — only Brandon, Erik, and Matt can access it. Each team member has toggle switches for 7 permissions. Tap Save after making changes." },
+  { q: ["admin", "permission", "access", "restrict"], a: "Go to ⚙️ Admin tab — only Brandon, Erik, and Matt can access it. Each team member has toggle switches for 7 permissions, plus a Visible Tabs picker to control which tabs they can see. Tap Save after making changes." },
   { q: ["photo", "picture", "profile", "avatar"], a: "Tap your initials or profile picture in the top right corner of the header. A menu appears with Upload Photo and Remove Photo options. Your photo is saved across all devices." },
   { q: ["pin", "gate", "code", "access", "lockbox"], a: "Open a job and tap ✏️ Edit. Scroll down to find the 🔑 Property Access PIN field. When saved, the PIN shows prominently in a yellow box in view mode." },
   { q: ["estimate", "quote", "not signed", "no contract"], a: "When submitting or editing a job, check the 📋 Estimate Only checkbox. The job shows an amber Estimate badge on the job list so the team knows no contract is signed yet." },
@@ -17179,8 +17462,15 @@ const CHATBOT_HELP = [
   { q: ["sign out", "logout", "log out", "switch user"], a: "Tap Sign out below your name in the top right corner of the app header." },
 ];
 
-function Chatbot({ onClose }) {
-  const [messages, setMessages] = useState([
+function Chatbot({ onClose, onboarding, user }) {
+  const firstName = user?.name?.split(" ")[0] || "there";
+  const [messages, setMessages] = useState(() => onboarding ? [
+    { from: "bot", text: `Hidey Ho ${firstName}! Welcome to the team — I'm Erik. Since this is your first time in, let me show you the basics real quick:` },
+    { from: "bot", text: "⏱ Clock In/Out — tap ⚡ Quick Actions on your Home screen, or the Drive & Time tab. One tap and you're clocked in." },
+    { from: "bot", text: "🚗 Mileage — same ⚡ Quick Actions button, or Drive & Time → 🚗 Mileage. Starts tracking your drive automatically." },
+    { from: "bot", text: "🧾 Receipts — ⚡ Quick Actions → 🧾 Add Receipt. Snap a photo and it'll read the vendor and amount for you." },
+    { from: "bot", text: "📋 Submitting a job — tap ➕ Submit in the top menu.\n\nThat covers the essentials — ask me anything else, or tap a quick question below. And remember, my little brother's the best!" },
+  ] : [
     { from: "bot", text: "Hidey Ho there Neighbor! Before I help you, just want everyone to know my little brothers the best!\n\nNow, what can I help you with?" }
   ]);
   const [input, setInput] = useState("");
@@ -20983,9 +21273,7 @@ function PublicEstimateAcceptPage({ docId }) {
   const [done, setDone] = useState(false);
   const [saving, setSaving] = useState(false);
   const [clientPrintedName, setClientPrintedName] = useState("");
-  const canvasRef = useRef();
-  const [drawing, setDrawing] = useState(false);
-  const [hasSig, setHasSig] = useState(false);
+  const sigPad = useSignaturePad();
 
   useEffect(() => {
     (async () => {
@@ -21006,12 +21294,12 @@ function PublicEstimateAcceptPage({ docId }) {
         const jobIdMatch = rec.description?.match(/^Estimate for (\S+) ·/);
         const parsedJobId = jobIdMatch && jobIdMatch[1] !== "job" ? jobIdMatch[1] : null;
         if (parsedJobId) {
-          const jobRows = await sbFetch(`jobs?id=eq.${encodeURIComponent(parsedJobId)}&select=id,customer_name,photo_names`);
+          const jobRows = await sbFetch(`jobs?id=eq.${encodeURIComponent(parsedJobId)}&select=id,customer_name,address,job_type,photo_names`);
           const jr = jobRows?.[0];
           if (jr) {
             let photoNames = [];
             try { photoNames = JSON.parse(jr.photo_names || "[]"); } catch {}
-            setJob({ id: jr.id, customerName: jr.customer_name, photoNames });
+            setJob({ id: jr.id, customerName: jr.customer_name, address: jr.address || "", jobType: jr.job_type || "", photoNames });
           }
         }
       } catch {
@@ -21024,21 +21312,11 @@ function PublicEstimateAcceptPage({ docId }) {
   const amountMatch = doc?.description?.match(/\$([\d,]+\.\d{2})/);
   const total = amountMatch ? amountMatch[1] : null;
 
-  function getPos(e, canvas) {
-    const rect = canvas.getBoundingClientRect();
-    const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
-  }
-  function startDraw(e) { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext("2d"); const p = getPos(e, c); ctx.beginPath(); ctx.moveTo(p.x, p.y); setDrawing(true); setHasSig(true); }
-  function draw(e) { e.preventDefault(); if (!drawing) return; const c = canvasRef.current; const ctx = c.getContext("2d"); ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = BRAND.navy; const p = getPos(e, c); ctx.lineTo(p.x, p.y); ctx.stroke(); }
-  function endDraw(e) { e.preventDefault(); setDrawing(false); }
-  function clearSig() { const c = canvasRef.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); setHasSig(false); }
-
   async function submitAcceptance() {
-    if (!hasSig || !doc) return;
+    if (!sigPad.hasSig || !doc) return;
     setSaving(true);
     try {
-      const sigDataUrl = canvasRef.current.toDataURL("image/png");
+      const sigDataUrl = sigPad.toDataURL();
       const dataUrl = await renderEstimateAcceptanceImage({
         doc, job, total, clientPrintedName, sigDataUrl,
         signedLine: "Signed online via secure link",
@@ -21059,6 +21337,10 @@ function PublicEstimateAcceptPage({ docId }) {
       if (job) {
         const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
         await updateJobPhotos(updated);
+        await notifyOwnersToScheduleJob(job, {
+          contextLabel: `Estimate accepted online${clientPrintedName ? ` by ${clientPrintedName}` : ""}`,
+          createdBy: clientPrintedName || "Client (online)",
+        });
       }
 
       setDone(true);
@@ -21136,19 +21418,16 @@ function PublicEstimateAcceptPage({ docId }) {
             <div style={S.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <label style={{ ...S.lbl, margin: 0 }}>Your Signature</label>
-                {hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
+                {sigPad.hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
               </div>
               <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 8 }}>Sign with your finger or mouse below</div>
-              <div style={{ background: "#F8FAFF", border: `2px solid ${hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none" }}>
-                <canvas ref={canvasRef} width={380} height={180}
-                  style={{ display: "block", width: "100%", height: 180, cursor: "crosshair" }}
-                  onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-                  onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+              <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
+                <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
               </div>
-              <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={clearSig}>Clear</button>
+              <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear</button>
             </div>
 
-            <button style={{ ...S.btn("primary"), opacity: (hasSig && !saving) ? 1 : 0.4 }} disabled={!hasSig || saving} onClick={submitAcceptance}>
+            <button style={{ ...S.btn("primary"), opacity: (sigPad.hasSig && !saving) ? 1 : 0.4 }} disabled={!sigPad.hasSig || saving} onClick={submitAcceptance}>
               {saving ? "Submitting…" : "✓ Accept & Sign Estimate"}
             </button>
 
@@ -21323,11 +21602,31 @@ export default function App() {
     if (u?.name) subscribeToPush(u.name);
   }
   const [tab, setTab]     = useState("home");
+  // Set by the Home screen's Quick Actions panel for the two actions that
+  // need a real tab to do safely (mileage's GPS tracking only exists while
+  // that tab is mounted; receipts just reuses its own Add form) — the tab
+  // reads this once on arrival to auto-trigger, then clears it.
+  const [quickAction, setQuickAction] = useState(null); // null | "startTrip" | "addReceipt"
+  function runQuickAction(action) {
+    setQuickAction(action);
+    setTab(action === "addReceipt" ? "receipts" : "mileage");
+  }
   const [jobs, setJobs]   = useState([]);
   const [loading, setLoading] = useState(false);
   const [initErr, setInitErr] = useState(null);
   const [backupReminder, setBackupReminder] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
+  const [chatbotOnboarding, setChatbotOnboarding] = useState(false);
+  // Wraps setUser so LoginScreen can flag a brand-new employee's very first
+  // completed login (password set + contact info saved) — we use that single
+  // moment to have Erik pop up with a quick walkthrough of the basics.
+  function handleLogin(u, opts) {
+    setUser(u);
+    if (opts?.firstLogin) {
+      setShowChatbot(true);
+      setChatbotOnboarding(true);
+    }
+  }
   const [loginNotifs, setLoginNotifs] = useState(null); // {newJobs, newTasks, followUps, mentions} — shown automatically once at login
   const [allNotifs, setAllNotifs] = useState({ newJobs: [], newTasks: [], followUps: [], mentions: [], changeOrderApprovals: [], purchaseApprovals: [] }); // persists for the bell icon
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -21740,7 +22039,7 @@ export default function App() {
   );
 
   if (!user) return (
-    <AppErrorBoundary><div style={S.app}><LoginScreen onLogin={setUser} /></div></AppErrorBoundary>
+    <AppErrorBoundary><div style={S.app}><LoginScreen onLogin={handleLogin} /></div></AppErrorBoundary>
   );
 
   const tabs = getUserTabs(user);
@@ -21758,7 +22057,7 @@ export default function App() {
       }}>
         <style>{"@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}} @keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}"}</style>
         <OfflineBanner />
-        {showChatbot && <Chatbot onClose={() => setShowChatbot(false)} />}
+        {showChatbot && <Chatbot user={user} onboarding={chatbotOnboarding} onClose={() => { setShowChatbot(false); setChatbotOnboarding(false); }} />}
 
         {/* ── Business Rules: Purchase Approvals & Schedule Conflicts ── */}
         {canAdmin(user) && (
@@ -22127,16 +22426,16 @@ export default function App() {
           </div>
         ) : (
           <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-            {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} />}
+            {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
             {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
             {tab==="contacts"  && (() => { markFeatureSeen("contacts"); return <ContactsTab user={user} />; })()}
-            {tab==="receipts"  && <StandaloneReceiptsTab user={user} />}
+            {tab==="receipts"  && <StandaloneReceiptsTab user={user} autoAdd={quickAction === "addReceipt"} onConsumeAutoAdd={() => setQuickAction(null)} />}
             {tab==="costcalc"  && <JobCostCalcTab user={user} />}
             {tab==="rates"     && <GoingRatesTab user={user} />}
             {tab==="materials" && <MaterialPricesTab user={user} />}
-            {tab==="mileage"   && (() => { markFeatureSeen("mileage"); return <MileageTab user={user} jobs={jobs} />; })()}
+            {tab==="mileage"   && (() => { markFeatureSeen("mileage"); return <MileageTab user={user} jobs={jobs} autoStartTrip={quickAction === "startTrip"} onConsumeAutoStart={() => setQuickAction(null)} />; })()}
             {tab==="docs"      && <DocsTab user={user} jobs={jobs} />}
             {tab==="contracts" && <DocTypeTab user={user} jobs={jobs} docType="contract" title="Contracts" icon="📝" emptyMsg="No contracts yet. Create one from the Docs tab." />}
             {tab==="tasks"     && <MyTasksTab jobs={jobs} user={user} onRefresh={loadJobs} />}
