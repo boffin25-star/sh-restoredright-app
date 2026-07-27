@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26w — Purchase approval threshold is now editable in Admin tab (was hardcoded, and two conflicting values existed); rebuilt the schedule-conflict warning — editing a job's Scheduled Date now checks for overlapping jobs live and warns before saving, with owners additionally notified for sign-off";
+const BUILD_STAMP = "2026-07-26x — Field crew features: job-type checklists auto-added on new jobs (+ reapply button in Tasks), GPS nudge on Home screen offers one-tap clock-in when near an assigned job site, and a server-side morning digest push (unscheduled jobs + tasks due today) now runs daily at ~7am via Supabase Edge Function + pg_cron";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -366,6 +366,8 @@ function rowToJob(r) {
     jobTasks: r.job_tasks ? JSON.parse(r.job_tasks) : [],
     costCalc: r.cost_calc ? JSON.parse(r.cost_calc) : null,
     purchaseRequests: r.purchase_requests ? JSON.parse(r.purchase_requests) : [],
+    lat: r.lat != null ? Number(r.lat) : null,
+    lng: r.lng != null ? Number(r.lng) : null,
   };
 }
 
@@ -424,7 +426,7 @@ function jobToRow(j) {
 }
 
 async function fetchJobs() {
-  const rows = await sbFetch("jobs?order=submitted_at.desc&select=id,customer_name,customer_phone,customer_cell_phone,customer_home_phone,customer_email,customer_company,job_type,address,apt_suite,scope,estimated_cost,priority,status,crew,scheduled_date,bid_date,start_date,completed_date,claim_number,adjuster_name,adjuster_phone,adjuster_email,property_pin,needs_permit,permit_obtained,permit_date,permit_photos,measurements,matterport_url,xactimate_url,external_links,is_estimate,submitted_by,submitted_at,receipts,job_notes,job_hours,change_orders,job_tasks,deposit_paid,deposit_paid_date,deposit_amount,final_paid,final_paid_date,final_amount,photo_names,cost_calc");
+  const rows = await sbFetch("jobs?order=submitted_at.desc&select=id,customer_name,customer_phone,customer_cell_phone,customer_home_phone,customer_email,customer_company,job_type,address,apt_suite,scope,estimated_cost,priority,status,crew,scheduled_date,bid_date,start_date,completed_date,claim_number,adjuster_name,adjuster_phone,adjuster_email,property_pin,needs_permit,permit_obtained,permit_date,permit_photos,measurements,matterport_url,xactimate_url,external_links,is_estimate,submitted_by,submitted_at,receipts,job_notes,job_hours,change_orders,job_tasks,deposit_paid,deposit_paid_date,deposit_amount,final_paid,final_paid_date,final_amount,photo_names,cost_calc,lat,lng");
   return (rows || []).map(rowToJob);
 }
 
@@ -2050,6 +2052,8 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
         <div style={{ fontSize: 13, color: BRAND.muted, fontWeight: 600 }}>Hi {user?.name?.split(" ")[0]}, what would you like to do?</div>
       </div>
 
+      <GpsClockInNudge user={user} jobs={jobs || []} />
+
       <button onClick={() => setShowQuickActions(true)} style={{
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%",
         background: BRAND.navy, border: "none", borderRadius: 12, color: BRAND.white,
@@ -2098,7 +2102,101 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
   );
 }
 
-// ─── Quick Actions panel ────────────────────────────────────────────────────────
+// ─── GPS Clock-In Nudge ─────────────────────────────────────────────────────
+// Runs once when the Home screen is opened: if the crew member is standing
+// near one of their own assigned jobs and isn't already clocked in anywhere,
+// shows a one-tap "clock in?" banner instead of relying on them to remember.
+//
+// HONEST LIMITATION: like mileage tracking, this only works while the app is
+// open — a browser PWA can't watch location in the background or wake itself
+// up when someone arrives. It's a nudge when they open the app on-site, not
+// a silent geofence trigger. Job addresses are geocoded once (via the free
+// Nominatim service, same as Contacts) and cached on the job so repeat
+// visits don't re-geocode.
+const GPS_CLOCKIN_RADIUS_MILES = 0.3;
+function GpsClockInNudge({ user, jobs }) {
+  const [nearbyJob, setNearbyJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+  const checkedRef = useRef(false);
+
+  useEffect(() => {
+    if (checkedRef.current) return; // once per mount, not on every re-render
+    checkedRef.current = true;
+    (async () => {
+      try {
+        // Already clocked in somewhere? Nothing to nudge about.
+        const openRows = await sbFetch(`time_entries?user_name=eq.${encodeURIComponent(user.name)}&clock_out=is.null&limit=1`).catch(() => []);
+        if (openRows?.length) return;
+
+        const here = await getUserLocation();
+        if (!here) return; // denied or unavailable — fail silent, no interruption
+
+        const today = new Date().toISOString().slice(0, 10);
+        const candidates = (jobs || []).filter(j =>
+          parseCrew(j.crew).includes(user.name) &&
+          !["Done", "Cancelled"].includes(j.status) &&
+          j.address &&
+          (() => { try { return localStorage.getItem(`sh_gps_dismiss_${j.id}_${today}`) !== "1"; } catch { return true; } })()
+        ).slice(0, 6); // bound how many we'll ever geocode in one pass
+
+        let best = null, bestDist = Infinity;
+        for (const j of candidates) {
+          let lat = j.lat, lng = j.lng;
+          if (lat == null || lng == null) {
+            const coords = await geocodeAddress(j.address);
+            if (!coords) continue;
+            lat = coords.lat; lng = coords.lng;
+            updateJobField(j.id, "lat", lat).catch(() => {});
+            updateJobField(j.id, "lng", lng).catch(() => {});
+          }
+          const dist = milesBetween(here.lat, here.lng, lat, lng);
+          if (dist < bestDist) { bestDist = dist; best = j; }
+        }
+        if (best && bestDist <= GPS_CLOCKIN_RADIUS_MILES) setNearbyJob(best);
+      } catch {}
+    })();
+  }, [user.name, jobs]);
+
+  if (!nearbyJob) return null;
+
+  async function clockIn() {
+    setBusy(true);
+    try {
+      const entry = { id: "TE-" + Date.now(), job_id: nearbyJob.id, job_customer: nearbyJob.customerName || null, user_name: user.name, clock_in: new Date().toISOString(), clock_out: null, duration_minutes: null, notes: "" };
+      await sbFetch("time_entries", { method: "POST", body: JSON.stringify(entry) });
+      setToast({ msg: `Clocked in on ${nearbyJob.customerName}`, ok: true });
+      setNearbyJob(null);
+    } catch {
+      setToast({ msg: "Couldn't clock in — try again from Quick Actions", ok: false });
+    }
+    setBusy(false);
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  function dismiss() {
+    try { localStorage.setItem(`sh_gps_dismiss_${nearbyJob.id}_${new Date().toISOString().slice(0,10)}`, "1"); } catch {}
+    setNearbyJob(null);
+  }
+
+  return (
+    <>
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+      <div style={{ background: "#EFF6FF", border: "1.5px solid #93C5FD", borderRadius: 12, padding: "12px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 22, flexShrink: 0 }}>📍</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1D4ED8" }}>Looks like you're at {nearbyJob.customerName}'s job</div>
+          <div style={{ fontSize: 11, color: "#3B82F6", marginTop: 1 }}>{nearbyJob.address}</div>
+        </div>
+        <button onClick={dismiss} style={{ background: "none", border: "none", color: "#93C5FD", fontSize: 16, cursor: "pointer", padding: 4, flexShrink: 0 }}>✕</button>
+        <button onClick={clockIn} disabled={busy} style={{ background: "#1D4ED8", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 12px", cursor: "pointer", flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+          {busy ? "…" : "Clock In"}
+        </button>
+      </div>
+    </>
+  );
+}
+
 // One-tap access from the Home screen to the three things field crew do
 // constantly: clock in/out, start a mileage trip, and log a receipt.
 // Clock in/out is fully self-contained here (it's just a simple time_entries
@@ -2959,7 +3057,7 @@ function JobForm({ user, onDone, onRefresh }) {
         }
       }
       setUploadProgress("Saving job…");
-      const job = { ...form, id, status: "New", scheduledDate: "", submittedBy: user.name, submittedAt: new Date().toISOString(), receipts: [], photoNames: photoUrls };
+      const job = { ...form, id, status: "New", scheduledDate: "", submittedBy: user.name, submittedAt: new Date().toISOString(), receipts: [], photoNames: photoUrls, jobTasks: buildChecklistTasks(form.jobType, user.name) };
       await insertJob(job);
       await onRefresh();
       setNicelyDoneJob(job);
@@ -5193,6 +5291,90 @@ const BLANK_TASK = {
   pickedUp: false, pickedUpAt: "", cost: "", addedToJobReceipts: false,
 };
 
+// ─── Job-Type Checklists ────────────────────────────────────────────────────
+// Standard task lists, one per job type, auto-added as job tasks the moment
+// a new job is submitted — saves the field crew from typing in the same
+// routine steps every time. Nothing here is mandatory: every item is a
+// normal task afterward, so crew can edit, reassign, reorder, delete, or
+// add their own on top, exactly like any task they'd have typed by hand.
+const JOB_TYPE_CHECKLISTS = {
+  water: [
+    "Take moisture readings & photos of affected areas",
+    "Extract standing water",
+    "Set up air movers / dehumidifiers",
+    "Check for mold risk / contamination",
+    "Photograph equipment placement",
+    "Daily moisture log until dry",
+    "Final moisture readings & sign-off",
+  ],
+  fire: [
+    "Photograph all fire/smoke/soot damage before touching anything",
+    "Board up / secure the structure",
+    "HEPA vacuum soot from surfaces",
+    "Odor control (ozone or thermal fogging)",
+    "Contents inventory (pack-out if needed)",
+    "Final walkthrough photos",
+  ],
+  mold: [
+    "Photograph visible mold and the moisture source",
+    "Set up containment (poly sheeting, negative air)",
+    "Run HEPA air scrubber",
+    "Remove affected materials",
+    "Antimicrobial treatment",
+    "Post-remediation clearance check",
+    "Final photos",
+  ],
+  storm: [
+    "Photograph exterior damage (roof, siding, windows)",
+    "Tarp or board any active leaks/openings",
+    "Take adjuster-ready damage photos",
+    "Measure affected area (roof squares, siding SF)",
+    "Debris removal",
+    "Final photos after repair",
+  ],
+  rebuild: [
+    "Confirm scope matches signed estimate/insurance scope",
+    "Pull permits if required",
+    "Rough-in inspection photos",
+    "Confirm material delivery",
+    "Progress photos at each phase",
+    "Final walkthrough with customer",
+  ],
+  construction: [
+    "Confirm scope and measurements match estimate",
+    "Pull permit if required",
+    "Before photos",
+    "Progress photos",
+    "Final walkthrough with customer sign-off",
+  ],
+  roofing: [
+    "Photograph existing roof condition (before)",
+    "Confirm material order matches scope",
+    "Tear-off photos / decking condition",
+    "Photos during install (underlayment, flashing)",
+    "Final photos + magnet sweep for nails",
+    "Give warranty paperwork to customer",
+  ],
+  gutters: [
+    "Photograph existing gutters/fascia (before)",
+    "Confirm measurements match material order",
+    "Install photos",
+    "Check downspout placement/drainage",
+    "Final photos + walkthrough",
+  ],
+};
+function buildChecklistTasks(jobType, createdBy) {
+  const items = JOB_TYPE_CHECKLISTS[jobType] || [];
+  const now = new Date().toISOString();
+  return items.map((title, i) => ({
+    ...BLANK_TASK,
+    id: Date.now() + i, // unique even though the whole batch is created in the same tick
+    title,
+    createdBy: createdBy || "Checklist",
+    createdAt: now,
+  }));
+}
+
 // Helper — assignedTo may be string (old) or array (new)
 function parseAssignees(val) {
   if (!val) return [];
@@ -5427,6 +5609,17 @@ function JobTasks({ job, onUpdate, user }) {
     setSaving(false);
   }
 
+  const [applyingChecklist, setApplyingChecklist] = useState(false);
+  async function applyChecklist() {
+    setApplyingChecklist(true);
+    const existingTitles = new Set(tasks.map(t => (t.title || "").trim().toLowerCase()));
+    const newTasks = buildChecklistTasks(job.jobType, user.name).filter(t => !existingTitles.has(t.title.trim().toLowerCase()));
+    if (newTasks.length > 0) {
+      await onUpdate({ ...job, jobTasks: [...tasks, ...newTasks] }, false);
+    }
+    setApplyingChecklist(false);
+  }
+
   async function saveEdit(id) {
     let receiptPhotoUrl = editForm.receiptPhotoUrl || "";
     if (editReceiptFile) receiptPhotoUrl = await uploadPhoto(editReceiptFile);
@@ -5455,10 +5648,19 @@ function JobTasks({ job, onUpdate, user }) {
           ✅ Tasks {tasks.length > 0 && <span style={{ color: BRAND.navy }}>({completedCount}/{tasks.length})</span>}
         </div>
         {!adding && isAdmin && (
-          <button onClick={() => { setAdding(true); setForm({ ...BLANK_TASK }); }}
-            style={{ fontSize: 12, fontWeight: 700, color: BRAND.white, background: "#16A34A", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
-            + Assign Task
-          </button>
+          <div style={{ display: "flex", gap: 6 }}>
+            {JOB_TYPE_CHECKLISTS[job.jobType] && (
+              <button onClick={applyChecklist} disabled={applyingChecklist}
+                title={`Add the standard ${JOB_TYPE_CHECKLISTS[job.jobType].length}-step ${job.jobType} checklist (skips anything already added)`}
+                style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy, background: BRAND.offWhite, border: `1px solid ${BRAND.border}`, borderRadius: 7, padding: "5px 12px", cursor: "pointer", opacity: applyingChecklist ? 0.6 : 1 }}>
+                {applyingChecklist ? "Adding…" : "🔄 Apply Checklist"}
+              </button>
+            )}
+            <button onClick={() => { setAdding(true); setForm({ ...BLANK_TASK }); }}
+              style={{ fontSize: 12, fontWeight: 700, color: BRAND.white, background: "#16A34A", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>
+              + Assign Task
+            </button>
+          </div>
         )}
       </div>
 
