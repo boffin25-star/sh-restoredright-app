@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26x — Field crew features: job-type checklists auto-added on new jobs (+ reapply button in Tasks), GPS nudge on Home screen offers one-tap clock-in when near an assigned job site, and a server-side morning digest push (unscheduled jobs + tasks due today) now runs daily at ~7am via Supabase Edge Function + pg_cron";
+const BUILD_STAMP = "2026-07-27a — New Job Detail section: Client Messages — two-way thread with the homeowner via the Client Portal, reading/writing the same job_messages table (no backend changes needed, RLS already allows it); portal now also pushes a notification to assigned crew (or the owners if unassigned) when a client messages in";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1974,6 +1974,12 @@ const TabIcons = {
     <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 2h12M6 22h12"/>
       <path d="M8 2c0 4 8 4 8 8s-8 4-8 8M16 2c0 4-8 4-8 8s8 4 8 8"/>
+    </svg>
+  ),
+  clientMessages: (
+    <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>
+      <path d="M8 9h8M8 12h5"/>
     </svg>
   ),
 };
@@ -5897,8 +5903,88 @@ function JobLinks({ job, onUpdate }) {
   );
 }
 
+// ─── Client Messages ────────────────────────────────────────────────────────
+// Two-way thread with the homeowner via the S&H Client Portal
+// (sh-client-portal.vercel.app). Reads/writes the exact same job_messages
+// table the portal uses, so anything sent from either side shows up on the
+// other with a simple refresh — no separate sync job needed.
+function ClientMessages({ job, user }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const rows = await sbFetch(`job_messages?job_id=eq.${encodeURIComponent(job.id)}&order=created_at.asc`);
+      setMessages(rows || []);
+    } catch {
+      setMessages([]);
+    }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [job.id]);
+
+  async function send() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setSending(true);
+    try {
+      await sbFetch("job_messages", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "MSG-" + Date.now(),
+          job_id: job.id,
+          sender_name: user.name,
+          sender_role: "staff",
+          message: trimmed,
+        }),
+      });
+      setText("");
+      await load();
+    } catch {}
+    setSending(false);
+  }
+
+  return (
+    <div>
+      {loading ? (
+        <div style={{ textAlign: "center", color: BRAND.muted, fontSize: 13, padding: "12px 0" }}>Loading…</div>
+      ) : messages.length === 0 ? (
+        <div style={{ textAlign: "center", color: BRAND.muted, fontSize: 13, padding: "12px 0 4px" }}>No messages with the client yet.</div>
+      ) : (
+        <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          {messages.map(m => (
+            <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: m.sender_role === "staff" ? "flex-end" : "flex-start" }}>
+              <div style={{
+                maxWidth: "80%", padding: "9px 13px", borderRadius: 12, fontSize: 13.5, lineHeight: 1.4,
+                background: m.sender_role === "staff" ? BRAND.navy : BRAND.offWhite,
+                color: m.sender_role === "staff" ? "#fff" : BRAND.text,
+                border: m.sender_role === "staff" ? "none" : `1px solid ${BRAND.border}`,
+              }}>
+                {m.message}
+              </div>
+              <div style={{ fontSize: 10.5, color: BRAND.muted, marginTop: 3 }}>
+                {m.sender_role === "staff" ? (m.sender_name || "Team") : "Client"} · {fmtTs(m.created_at)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <label style={S.lbl}>Reply to Client</label>
+      <VoiceInput multiline value={text} onChange={setText} placeholder="Type a reply — the client sees this in their portal…" style={{ height: 72 }} />
+      <button
+        style={{ ...S.btn("primary"), opacity: (text.trim() && !sending) ? 1 : 0.4, marginTop: 8 }}
+        onClick={send} disabled={!text.trim() || sending}
+      >
+        {sending ? "Sending…" : "Send Reply"}
+      </button>
+    </div>
+  );
+}
+
 // ─── Job Notes Log ────────────────────────────────────────────────────────────
-// ─── @mention helpers ─────────────────────────────────────────────────────────
 // All first names + full names that can be @mentioned
 const MENTION_NAMES = (() => {
   const names = new Set();
@@ -10213,6 +10299,12 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs,
           <AccordionItem id="updates" title="Job Updates" icon={TabIcons.updates} accentColor="#475569" badge={(job.jobNotes || []).length || 0}>
             <div style={{ paddingTop: 8 }}>
               <JobNotes job={job} onUpdate={onUpdate} user={user} />
+            </div>
+          </AccordionItem>
+
+          <AccordionItem id="clientMessages" title="Client Messages" icon={TabIcons.clientMessages} accentColor="#2563EB">
+            <div style={{ paddingTop: 8 }}>
+              <ClientMessages job={job} user={user} />
             </div>
           </AccordionItem>
 
