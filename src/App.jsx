@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26r — Restored the App Hub splash screen (Jobs & Operations / Planner / Leads & Social / Spend Analyzer) that was lost — rebuilt from prior session history";
+const BUILD_STAMP = "2026-07-26u — Desktop view: Jobs list and Contacts now lay out in a multi-column grid on laptop/desktop instead of one long column; Job Detail width is capped so forms don't stretch awkwardly wide (Leads/Tasks/Receipts/Docs/Rates/Materials not yet done — separate follow-up)";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -724,7 +724,7 @@ const CAN_ADMIN = ["brandon", "erik", "matt"];
 let _permissions = { ...DEFAULT_PERMISSIONS };
 async function loadPermissions() {
   try {
-    const rows = await sbFetch("permissions?select=user_id,can_delete,can_see_dollars,can_backup,can_submit_jobs,can_edit_jobs,can_view_contacts,can_view_docs,visible_tabs");
+    const rows = await sbFetch("permissions?select=user_id,can_delete,can_see_dollars,can_backup,can_submit_jobs,can_edit_jobs,can_view_contacts,can_view_docs,visible_tabs,visible_hub_apps");
     if (rows?.length) {
       const map = {};
       rows.forEach(r => {
@@ -737,6 +737,7 @@ async function loadPermissions() {
           canViewContacts: r.can_view_contacts,
           canViewDocs:     r.can_view_docs,
           visibleTabIds:   Array.isArray(r.visible_tabs) ? r.visible_tabs : null,
+          visibleHubAppIds: Array.isArray(r.visible_hub_apps) ? r.visible_hub_apps : null,
         };
       });
       _permissions = { ...DEFAULT_PERMISSIONS, ...map };
@@ -755,6 +756,7 @@ async function savePermission(userId, perms, updatedBy) {
       can_view_contacts: perms.canViewContacts,
       can_view_docs:     perms.canViewDocs,
       visible_tabs:      Array.isArray(perms.visibleTabIds) ? perms.visibleTabIds : null,
+      visible_hub_apps:  Array.isArray(perms.visibleHubAppIds) ? perms.visibleHubAppIds : null,
       updated_by: updatedBy,
       updated_at: new Date().toISOString(),
     }),
@@ -859,6 +861,18 @@ function getUserTabs(user) {
     if (ADMIN_ONLY_TAB_IDS.includes(t.id)) return canAdmin(user);
     if (ALWAYS_VISIBLE_TAB_IDS.includes(t.id)) return true;
     if (Array.isArray(restriction)) return restriction.includes(t.id);
+    return true;
+  });
+}
+
+// Same idea as getUserTabs, but for the App Hub splash tiles. "main" (Jobs &
+// Operations) always stays visible — it's how you get into the actual app,
+// so hiding it would strand whoever it's hidden from.
+function getUserHubApps(user) {
+  const restriction = getPerms(user).visibleHubAppIds;
+  return APP_HUB_APPS.filter(app => {
+    if (app.id === "main") return true;
+    if (Array.isArray(restriction)) return restriction.includes(app.id);
     return true;
   });
 }
@@ -995,6 +1009,11 @@ const APP_HUB_APPS = [
   },
 ];
 
+// The App Hub tiles an admin can toggle per employee — everything except
+// "main" (Jobs & Operations), which always stays visible so no one gets
+// stranded with no way into the actual app.
+const CUSTOMIZABLE_HUB_APPS = APP_HUB_APPS.filter(a => a.id !== "main");
+
 // Thin line-icon set matching the main app's nav icon style (used instead of
 // emoji so the hub tiles look consistent with the rest of the app).
 function HubIcon({ name, size = 28, color = "#fff" }) {
@@ -1052,8 +1071,9 @@ function HubIcon({ name, size = 28, color = "#fff" }) {
   );
 }
 
-function AppHubScreen({ user, onSelect }) {
+function AppHubScreen({ user, onSelect, isDesktopView }) {
   const firstName = user?.name?.split(" ")[0] || "there";
+  const hubApps = getUserHubApps(user);
   return (
     <div style={{
       ...S.app,
@@ -1064,7 +1084,7 @@ function AppHubScreen({ user, onSelect }) {
     }}>
       <div style={{
         width: "100%",
-        maxWidth: 430,
+        maxWidth: isDesktopView ? 700 : 430,
         minHeight: "100vh",
         background: BRAND.offWhite,
         display: "flex",
@@ -1087,7 +1107,7 @@ function AppHubScreen({ user, onSelect }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
-          {APP_HUB_APPS.map(app => (
+          {hubApps.map(app => (
             <button
               key={app.id}
               onClick={() => onSelect(app.dest)}
@@ -9384,7 +9404,7 @@ function JobMileageSection({ job, user }) {
   );
 }
 
-function JobDetail({ job, onBack, onUpdate, onDelete, user }) {
+function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
   const showDollars = canSeeDollars(user);
   const allowDelete = canDelete(user);
   const [editing, setEditing] = useState(false);
@@ -9487,7 +9507,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user }) {
         </div>
       )}
 
-      <div style={S.scroll}>
+      <div style={isDesktopView ? { ...S.scroll, maxWidth: 720, margin: "0 auto", width: "100%" } : S.scroll}>
         {/* ── Job Info Card ── */}
         <div style={S.card}>
           {editing ? (
@@ -9925,7 +9945,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user }) {
 }
 
 // ─── Jobs List ────────────────────────────────────────────────────────────────
-function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate }) {
+function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate, isDesktopView }) {
   const [payFilter, setPayFilter] = useState("All");
   const [sortBy, setSortBy] = useState("submittedAt");
   const [sortDir, setSortDir] = useState("desc");
@@ -9934,6 +9954,14 @@ function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate }) {
   const [toast, setToast] = useState(null);
   const [openGroup, setOpenGroup] = useState(null); // "Estimate" | "Contracted" | null
   const [openStatus, setOpenStatus] = useState(null); // composite key "Estimate:New" etc.
+
+  // On phones this is a single stacked column (existing behavior). On
+  // laptop/desktop, job cards lay out in a responsive multi-column grid
+  // instead, so the extra screen width actually shows more jobs at once
+  // instead of just leaving whitespace on either side.
+  const cardGridStyle = isDesktopView
+    ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 }
+    : {};
 
   function toggleSort(field) {
     if (sortBy === field) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -10019,7 +10047,7 @@ function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate }) {
     <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column" }}>
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
       <OnboardingChecklist user={user} onNavigate={onNavigate} onClose={() => {}} />
-      {detailJob && <JobDetail job={detailJob} onBack={() => setDetailId(null)} onUpdate={handleUpdate} onDelete={handleDelete} user={user} />}
+      {detailJob && <JobDetail job={detailJob} onBack={() => setDetailId(null)} onUpdate={handleUpdate} onDelete={handleDelete} user={user} isDesktopView={isDesktopView} />}
       <div style={S.scroll}>
         {/* Search row */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -10059,7 +10087,7 @@ function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate }) {
           <div style={{ textAlign: "center", color: BRAND.muted, marginTop: 40, fontSize: 14 }}>No jobs found.</div>
         ) : searching ? (
           // While actively searching, show a flat list so results aren't buried in collapsed groups
-          filtered.map(j => <JobCard key={j.id} job={j} onOpen={j => setDetailId(j.id)} />)
+          <div style={cardGridStyle}>{filtered.map(j => <JobCard key={j.id} job={j} onOpen={j => setDetailId(j.id)} />)}</div>
         ) : (
           // ── Estimate / Contracted top-level groups ──
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -10115,7 +10143,7 @@ function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate }) {
                               <span style={{ fontSize: 12, color: statusOpen ? s.meta.text : BRAND.muted, transition: "transform 0.2s", display: "inline-block", transform: statusOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
                             </button>
                             {statusOpen && (
-                              <div style={{ padding: "2px 10px 10px" }}>
+                              <div style={{ padding: "2px 10px 10px", ...cardGridStyle }}>
                                 {s.jobs.map(j => <JobCard key={j.id} job={j} onOpen={j => setDetailId(j.id)} />)}
                               </div>
                             )}
@@ -13648,7 +13676,7 @@ function getUserLocation() {
   });
 }
 
-function ContactsTab({ user }) {
+function ContactsTab({ user, isDesktopView }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -14310,6 +14338,7 @@ function ContactsTab({ user }) {
               {locatingUser && " · finding your location for nearest-supplier sorting…"}
               {!locatingUser && userLocation && typeFilter === "supplier" && " · sorted by preferred, then nearest"}
             </div>
+            <div style={isDesktopView ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 } : undefined}>
             {visible.map(c => {
               const ct = CONTACT_TYPES.find(t => t.value === c.type) || CONTACT_TYPES[5];
               const distance = (userLocation && c.type === "supplier" && c.lat != null && c.lng != null)
@@ -14337,6 +14366,7 @@ function ContactsTab({ user }) {
                 </div>
               );
             })}
+            </div>
           </>
         )}
       </div>
@@ -17080,6 +17110,27 @@ function AdminTab({ user, onShowPolicy }) {
     setLocalPerms(prev => ({ ...prev, [userId]: { ...prev[userId], visibleTabIds: null } }));
   }
 
+  // Same pattern as toggleTab/resetTabsToAll above, but for the App Hub
+  // splash tiles. "main" (Jobs & Operations) isn't offered here — it's
+  // filtered out in getUserHubApps regardless, since hiding it would leave
+  // someone with no way into the actual app.
+  function toggleHubApp(userId, appId) {
+    setLocalPerms(prev => {
+      const current = prev[userId] || {};
+      const baseline = Array.isArray(current.visibleHubAppIds)
+        ? current.visibleHubAppIds
+        : CUSTOMIZABLE_HUB_APPS.map(a => a.id);
+      const nextList = baseline.includes(appId)
+        ? baseline.filter(id => id !== appId)
+        : [...baseline, appId];
+      return { ...prev, [userId]: { ...current, visibleHubAppIds: nextList } };
+    });
+  }
+
+  function resetHubAppsToAll(userId) {
+    setLocalPerms(prev => ({ ...prev, [userId]: { ...prev[userId], visibleHubAppIds: null } }));
+  }
+
   async function saveUser(userId) {
     setSaving(s => ({ ...s, [userId]: true }));
     try {
@@ -17534,6 +17585,41 @@ function AdminTab({ user, onShowPolicy }) {
                           fontSize: 12, fontWeight: 600, cursor: "pointer",
                         }}>
                           <span>{t.icon}</span><span>{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* App Hub links picker */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BRAND.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: BRAND.navy }}>🧩 App Hub Links</div>
+                    {Array.isArray(perms.visibleHubAppIds) && (
+                      <button onClick={() => resetHubAppsToAll(u.id)} style={{ background: "none", border: "none", color: BRAND.blue, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                        Show All
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: BRAND.muted, marginBottom: 8 }}>
+                    {Array.isArray(perms.visibleHubAppIds)
+                      ? `Only the highlighted apps below appear on ${u.name.split(" ")[0]}'s splash screen (Jobs & Operations always stays).`
+                      : `${u.name.split(" ")[0]} currently sees every app on the splash screen. Tap one below to start restricting.`}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {CUSTOMIZABLE_HUB_APPS.map(a => {
+                      const restricted = Array.isArray(perms.visibleHubAppIds);
+                      const shown = restricted ? perms.visibleHubAppIds.includes(a.id) : true;
+                      return (
+                        <button key={a.id} onClick={() => toggleHubApp(u.id, a.id)} style={{
+                          display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 99,
+                          border: `1.5px solid ${shown ? "#16A34A" : BRAND.border}`,
+                          background: shown ? "#F0FDF4" : BRAND.offWhite,
+                          color: shown ? "#15803D" : BRAND.muted,
+                          fontSize: 12, fontWeight: 600, cursor: "pointer",
+                        }}>
+                          <HubIcon name={a.icon} size={13} color={shown ? "#15803D" : BRAND.muted} />
+                          <span>{a.label}</span>
                         </button>
                       );
                     })}
@@ -22268,9 +22354,21 @@ export default function App() {
 
   const [showChangePassword, setShowChangePassword] = useState(false);
 
-  // Mobile / Desktop view toggle — persists per device so the choice sticks across visits
+  // Mobile / Desktop view toggle. Auto-detects from the actual screen size
+  // so laptops/tablets/desktops get the wider layout without anyone having
+  // to find a setting — phones stay narrow. Keeps adapting live if the
+  // window is resized, right up until someone taps the toggle themselves;
+  // that explicit choice is then remembered (localStorage) and stops the
+  // auto-adjusting, since at that point it's a deliberate preference.
+  function detectDefaultViewMode() {
+    try { return window.innerWidth >= 768 ? "desktop" : "mobile"; } catch { return "mobile"; }
+  }
   const [viewMode, setViewMode] = useState(() => {
-    try { return localStorage.getItem("sh_view_mode") || "mobile"; } catch { return "mobile"; }
+    try {
+      const saved = localStorage.getItem("sh_view_mode");
+      if (saved) return saved;
+    } catch {}
+    return detectDefaultViewMode();
   });
   function toggleViewMode() {
     setViewMode(prev => {
@@ -22279,6 +22377,16 @@ export default function App() {
       return next;
     });
   }
+  useEffect(() => {
+    function onResize() {
+      try {
+        if (localStorage.getItem("sh_view_mode")) return; // explicit choice already made — leave it alone
+      } catch {}
+      setViewMode(detectDefaultViewMode());
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const isDesktopView = viewMode === "desktop";
 
   // ── Install-as-app prompt ──
@@ -22499,7 +22607,7 @@ export default function App() {
   if (showAppHub) return (
     <AppErrorBoundary>
       <PolicyAcknowledgmentGate user={user}>
-        <AppHubScreen user={user} onSelect={(dest) => { setShowAppHub(false); if (dest !== "main") window.open(dest, "_blank"); }} />
+        <AppHubScreen user={user} isDesktopView={isDesktopView} onSelect={(dest) => { setShowAppHub(false); if (dest !== "main") window.open(dest, "_blank"); }} />
       </PolicyAcknowledgmentGate>
     </AppErrorBoundary>
   );
@@ -22834,6 +22942,7 @@ export default function App() {
               <div style={{ textAlign:"right" }}>
                 <div style={{ fontSize:12, fontWeight:700, color:BRAND.white }}>{user.name}</div>
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={toggleViewMode} style={{ background:"none", border:"none", color:"#7A9CC4", fontSize:10, fontWeight:600, cursor:"pointer", padding:0 }}>{isDesktopView ? "📱 Mobile view" : "🖥️ Desktop view"}</button>
                   <button onClick={() => setShowChangePassword(true)} style={{ background:"none", border:"none", color:"#7A9CC4", fontSize:10, fontWeight:600, cursor:"pointer", padding:0 }}>Password</button>
                   <button onClick={() => setUser(null)} style={{ background:"none", border:"none", color:BRAND.gold, fontSize:10, fontWeight:600, cursor:"pointer", padding:0 }}>Sign out</button>
                 </div>
@@ -22889,10 +22998,10 @@ export default function App() {
         ) : (
           <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} />}
-            {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} />}
+            {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
             {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
-            {tab==="contacts"  && (() => { markFeatureSeen("contacts"); return <ContactsTab user={user} />; })()}
+            {tab==="contacts"  && (() => { markFeatureSeen("contacts"); return <ContactsTab user={user} isDesktopView={isDesktopView} />; })()}
             {tab==="receipts"  && <StandaloneReceiptsTab user={user} autoAdd={quickAction === "addReceipt"} onConsumeAutoAdd={() => setQuickAction(null)} />}
             {tab==="costcalc"  && <JobCostCalcTab user={user} />}
             {tab==="rates"     && <GoingRatesTab user={user} />}
