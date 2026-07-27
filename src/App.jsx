@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26k — Client estimate page: explicit Accept/Decline choice, no name pre-filled, signature stays the last step before Accept & Sign";
+const BUILD_STAMP = "2026-07-26l — Fixed signature pad wiping itself mid-stroke on mobile (a previous fix's resize listener fired during touch and erased the signature)";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -11890,32 +11890,41 @@ function useSignaturePad() {
     const ctx = canvas.getContext("2d");
     let drawing = false;
 
-    function sizeCanvas() {
+    function sizeCanvas(force) {
       const rect = wrap.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return; // not laid out yet — try again next tick
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(rect.width * dpr));
-      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      const newW = Math.max(1, Math.round(rect.width * dpr));
+      const newH = Math.max(1, Math.round(rect.height * dpr));
+      if (!force && canvas.width === newW && canvas.height === newH) return; // already this size — don't touch it
+      if (drawing) { pendingResize = true; return; } // never yank the canvas out from under an active stroke
+      canvas.width = newW;
+      canvas.height = newH;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(dpr, dpr);
       ctx.lineWidth = 2.5;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.strokeStyle = BRAND.navy;
-      setHasSig(false); // resizing wipes the canvas bitmap — any in-progress signature is gone either way
+      setHasSig(false); // an actual resize wipes the canvas bitmap — any in-progress signature is gone either way
     }
+    let pendingResize = false;
     // Size once now, then again shortly after — on first mount the wrap div
     // can still report a 0-height rect for a frame or two (fonts/images
     // above it settling), which previously left the canvas permanently
     // mis-sized relative to its CSS box: touches landed in the wrong spot
-    // and strokes looked broken/offset. A short retry plus real resize
-    // listeners (phone keyboard opening/closing, address bar hide/show,
-    // rotation) keep the drawing surface matched to what's on screen.
-    sizeCanvas();
-    const retryId = setTimeout(sizeCanvas, 150);
-    window.addEventListener("resize", sizeCanvas);
-    window.visualViewport?.addEventListener("resize", sizeCanvas);
-    window.addEventListener("orientationchange", sizeCanvas);
+    // and strokes looked broken/offset. Real resize listeners (phone
+    // keyboard, address bar hide/show, rotation) keep it matched to what's
+    // on screen — but mobile browsers also fire these mid-touch just from
+    // the chrome shifting, so a naive "always resize" handler was wiping
+    // the signature while it was still being drawn. onResize below skips
+    // no-op sizes and defers real ones until the current stroke finishes.
+    sizeCanvas(true);
+    const retryId = setTimeout(() => sizeCanvas(true), 150);
+    const onResize = () => sizeCanvas();
+    window.addEventListener("resize", onResize);
+    window.visualViewport?.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
 
     function posFromEvent(e) {
       const rect = canvas.getBoundingClientRect();
@@ -11940,6 +11949,7 @@ function useSignaturePad() {
     function stop(e) {
       if (drawing && e) e.preventDefault();
       drawing = false;
+      if (pendingResize) { pendingResize = false; sizeCanvas(true); }
     }
 
     canvas.addEventListener("mousedown", start);
@@ -11959,9 +11969,9 @@ function useSignaturePad() {
       canvas.removeEventListener("touchend", stop);
       canvas.removeEventListener("touchcancel", stop);
       clearTimeout(retryId);
-      window.removeEventListener("resize", sizeCanvas);
-      window.visualViewport?.removeEventListener("resize", sizeCanvas);
-      window.removeEventListener("orientationchange", sizeCanvas);
+      window.removeEventListener("resize", onResize);
+      window.visualViewport?.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
     };
   }, []);
 
