@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26p — Signature pad: preventDefault now runs before setPointerCapture (which can throw for touch-type pointers on some real devices, silently letting the browser hijack the gesture) — verified with a forced-failure browser test; added ?debug=1 diagnostic overlay for the client sign page";
+const BUILD_STAMP = "2026-07-26q — Client estimate link: typing your name is now the electronic signature (no more drawing/canvas — sidesteps the touch issues entirely); tap the estimate/document image to view it enlarged";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -12059,19 +12059,27 @@ async function renderEstimateAcceptanceImage({ doc, job, total, clientPrintedNam
   // Signature
   ctx.fillStyle = BRAND.muted; ctx.font = "11px Inter, sans-serif";
   ctx.fillText("CLIENT SIGNATURE", pad, y); y += 10;
-  const sigImg = new Image();
-  await new Promise(res => { sigImg.onload = res; sigImg.src = sigDataUrl; });
-  // Fit within a 340x100 box without stretching — the captured signature's
-  // pixel dimensions come from the on-screen pad's own width/height (which
-  // varies by phone), so forcing it into that box at a fixed size squashed
-  // or stretched every signature. Scale to fit instead, and center it.
-  const sigBoxW = 340, sigBoxH = 100;
-  const sigScale = sigImg.naturalWidth && sigImg.naturalHeight
-    ? Math.min(sigBoxW / sigImg.naturalWidth, sigBoxH / sigImg.naturalHeight, 1)
-    : 1;
-  const sigDrawW = (sigImg.naturalWidth || sigBoxW) * sigScale;
-  const sigDrawH = (sigImg.naturalHeight || sigBoxH) * sigScale;
-  ctx.drawImage(sigImg, pad + (sigBoxW - sigDrawW) / 2, y + (sigBoxH - sigDrawH) / 2, sigDrawW, sigDrawH);
+  if (sigDataUrl) {
+    const sigImg = new Image();
+    await new Promise(res => { sigImg.onload = res; sigImg.src = sigDataUrl; });
+    // Fit within a 340x100 box without stretching — the captured signature's
+    // pixel dimensions come from the on-screen pad's own width/height (which
+    // varies by phone), so forcing it into that box at a fixed size squashed
+    // or stretched every signature. Scale to fit instead, and center it.
+    const sigBoxW = 340, sigBoxH = 100;
+    const sigScale = sigImg.naturalWidth && sigImg.naturalHeight
+      ? Math.min(sigBoxW / sigImg.naturalWidth, sigBoxH / sigImg.naturalHeight, 1)
+      : 1;
+    const sigDrawW = (sigImg.naturalWidth || sigBoxW) * sigScale;
+    const sigDrawH = (sigImg.naturalHeight || sigBoxH) * sigScale;
+    ctx.drawImage(sigImg, pad + (sigBoxW - sigDrawW) / 2, y + (sigBoxH - sigDrawH) / 2, sigDrawW, sigDrawH);
+  } else {
+    // Typed-name signature (remote sign link) — no drawing involved, so
+    // there's nothing that depends on canvas touch/pointer handling at all.
+    ctx.fillStyle = "#1C2B4A";
+    ctx.font = "italic 40px Georgia, 'Times New Roman', serif";
+    ctx.fillText(clientPrintedName || job?.customerName || "Client", pad + 6, y + 65);
+  }
   y += 106;
   ctx.strokeStyle = "#333"; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + 340, y); ctx.stroke();
@@ -21397,12 +21405,11 @@ function PublicEstimateAcceptPage({ docId }) {
   const [done, setDone] = useState(false);
   const [saving, setSaving] = useState(false);
   const [clientPrintedName, setClientPrintedName] = useState("");
-  const sigPad = useSignaturePad();
   const [mode, setMode] = useState("accept"); // "accept" | "decline"
   const [declineReason, setDeclineReason] = useState("");
   const [declining, setDeclining] = useState(false);
   const [declined, setDeclined] = useState(false);
-
+  const [zoomedImg, setZoomedImg] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -21442,13 +21449,12 @@ function PublicEstimateAcceptPage({ docId }) {
   const total = amountMatch ? amountMatch[1] : null;
 
   async function submitAcceptance() {
-    if (!sigPad.hasSig || !clientPrintedName.trim() || !doc) return;
+    if (!clientPrintedName.trim() || !doc) return;
     setSaving(true);
     try {
-      const sigDataUrl = sigPad.toDataURL();
       const dataUrl = await renderEstimateAcceptanceImage({
-        doc, job, total, clientPrintedName, sigDataUrl,
-        signedLine: "Signed online via secure link",
+        doc, job, total, clientPrintedName,
+        signedLine: "Electronically signed (typed name) via secure link",
       });
       const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
@@ -21555,7 +21561,10 @@ function PublicEstimateAcceptPage({ docId }) {
             {mode === "decline" ? (
               <>
                 {doc?.url && (
-                  <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+                  <>
+                    <img src={doc.url} alt="Estimate" onClick={() => setZoomedImg(true)} style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 4, cursor: "zoom-in" }} />
+                    <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginBottom: 14 }}>🔍 Tap image to enlarge</div>
+                  </>
                 )}
                 {total && (
                   <div style={{ ...S.card, background: BRAND.offWhite }}>
@@ -21578,7 +21587,7 @@ function PublicEstimateAcceptPage({ docId }) {
               </>
             ) : (
               <>
-                <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>3 quick steps below — takes about a minute</div>
+                <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>2 quick steps below — takes about a minute</div>
 
                 {/* Step 1 — Review */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -21587,7 +21596,10 @@ function PublicEstimateAcceptPage({ docId }) {
                 </div>
 
                 {doc?.url && (
-                  <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+                  <>
+                    <img src={doc.url} alt="Estimate" onClick={() => setZoomedImg(true)} style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 4, cursor: "zoom-in" }} />
+                    <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginBottom: 14 }}>🔍 Tap image to enlarge</div>
+                  </>
                 )}
 
                 {total && (
@@ -21601,49 +21613,32 @@ function PublicEstimateAcceptPage({ docId }) {
 
                 <div style={{ ...S.card, background: "#FFF7ED", border: "1px solid #FDBA74" }}>
                   <div style={{ fontSize: 12.5, color: "#7C2D12", lineHeight: 1.5 }}>
-                    This is an <strong>estimate</strong> — not a final price. Signing below authorizes S&H Services Spokane LLC to proceed with the work described. <strong>Costs can change if additional work is needed</strong> once work begins; you'll be told before any extra cost is incurred.
+                    This is an <strong>estimate</strong> — not a final price. Typing your name and tapping Accept below authorizes S&H Services Spokane LLC to proceed with the work described. <strong>Costs can change if additional work is needed</strong> once work begins; you'll be told before any extra cost is incurred.
                   </div>
                 </div>
 
-                {/* Step 2 — Name */}
+                {/* Step 2 — Name IS the signature — the last thing before Accept & Sign */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
                   <span style={{ width: 22, height: 22, borderRadius: "50%", background: clientPrintedName.trim() ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{clientPrintedName.trim() ? "✓" : "2"}</span>
-                  <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Type your name</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Type your full name to sign</span>
                 </div>
                 <div style={S.card}>
                   <input style={S.input} placeholder="Your full name" value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
-                </div>
-
-                {/* Step 3 — Sign — the last thing before Accept & Sign */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
-                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: sigPad.hasSig ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{sigPad.hasSig ? "✓" : "3"}</span>
-                  <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Sign below with your finger</span>
-                </div>
-                <div style={S.card}>
-                  {sigPad.unsupported ? (
-                    <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: 12, fontSize: 12.5, color: "#991B1B" }}>
-                      Signing isn't supported in this browser. Please open this link in Safari (iPhone) or Chrome (Android) and try again.
-                    </div>
-                  ) : (
-                    <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", height: 180 }}>
-                      <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent" }} />
-                    </div>
-                  )}
-                  <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear & try again</button>
+                  <div style={{ fontSize: 11.5, color: BRAND.muted, marginTop: 8, lineHeight: 1.4 }}>
+                    Typing your name here and tapping the button below serves as your electronic signature on this estimate.
+                  </div>
                 </div>
 
                 <button
-                  style={{ ...S.btn("primary"), marginTop: 16, opacity: (sigPad.hasSig && clientPrintedName.trim() && !saving) ? 1 : 0.4 }}
-                  disabled={!sigPad.hasSig || !clientPrintedName.trim() || saving}
+                  style={{ ...S.btn("primary"), marginTop: 16, opacity: (clientPrintedName.trim() && !saving) ? 1 : 0.4 }}
+                  disabled={!clientPrintedName.trim() || saving}
                   onClick={submitAcceptance}
                 >
                   {saving ? "Submitting…" : "✓ Accept & Sign Estimate"}
                 </button>
-                {(!sigPad.hasSig || !clientPrintedName.trim()) && (
+                {!clientPrintedName.trim() && (
                   <div style={{ textAlign: "center", fontSize: 12, color: "#B45309", marginTop: 8, fontWeight: 600 }}>
-                    {!clientPrintedName.trim() && !sigPad.hasSig ? "Type your name and sign above to finish" :
-                     !clientPrintedName.trim() ? "Type your name above to finish" :
-                     "Sign above to finish"}
+                    Type your name above to finish
                   </div>
                 )}
 
@@ -21659,6 +21654,13 @@ function PublicEstimateAcceptPage({ docId }) {
           S&H Services Spokane LLC
         </div>
       </div>
+
+      {zoomedImg && doc?.url && (
+        <div onClick={() => setZoomedImg(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <button onClick={() => setZoomedImg(false)} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: 20, cursor: "pointer" }}>×</button>
+          <img src={doc.url} alt="Estimate (enlarged)" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 6 }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -21673,6 +21675,7 @@ function PublicDocumentViewPage({ docId }) {
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [zoomedImg, setZoomedImg] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -21726,7 +21729,10 @@ function PublicDocumentViewPage({ docId }) {
           <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>{doc.name}</div>
 
           {doc.url && (
-            <img src={doc.url} alt={label} style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+            <>
+              <img src={doc.url} alt={label} onClick={() => setZoomedImg(true)} style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 4, cursor: "zoom-in" }} />
+              <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginBottom: 14 }}>🔍 Tap image to enlarge</div>
+            </>
           )}
 
           <button onClick={download} style={S.btn("primary")}>⬇ Download</button>
@@ -21740,6 +21746,13 @@ function PublicDocumentViewPage({ docId }) {
           S&H Services Spokane LLC
         </div>
       </div>
+
+      {zoomedImg && doc?.url && (
+        <div onClick={() => setZoomedImg(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <button onClick={() => setZoomedImg(false)} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 40, height: 40, color: "#fff", fontSize: 20, cursor: "pointer" }}>×</button>
+          <img src={doc.url} alt={`${label} (enlarged)`} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 6 }} />
+        </div>
+      )}
     </div>
   );
 }
