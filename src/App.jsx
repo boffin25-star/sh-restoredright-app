@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26i — New employees get an automatic Erik walkthrough (clock in, mileage, receipts, jobs) right after their first login";
+const BUILD_STAMP = "2026-07-26j — Client estimate-signing page walks through 3 clear steps + fixed signature pad mis-sizing on mobile (resize/keyboard) and squished signature on the saved record";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -11862,6 +11862,7 @@ function useSignaturePad() {
 
     function sizeCanvas() {
       const rect = wrap.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return; // not laid out yet — try again next tick
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.round(rect.width * dpr));
       canvas.height = Math.max(1, Math.round(rect.height * dpr));
@@ -11871,8 +11872,20 @@ function useSignaturePad() {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.strokeStyle = BRAND.navy;
+      setHasSig(false); // resizing wipes the canvas bitmap — any in-progress signature is gone either way
     }
+    // Size once now, then again shortly after — on first mount the wrap div
+    // can still report a 0-height rect for a frame or two (fonts/images
+    // above it settling), which previously left the canvas permanently
+    // mis-sized relative to its CSS box: touches landed in the wrong spot
+    // and strokes looked broken/offset. A short retry plus real resize
+    // listeners (phone keyboard opening/closing, address bar hide/show,
+    // rotation) keep the drawing surface matched to what's on screen.
     sizeCanvas();
+    const retryId = setTimeout(sizeCanvas, 150);
+    window.addEventListener("resize", sizeCanvas);
+    window.visualViewport?.addEventListener("resize", sizeCanvas);
+    window.addEventListener("orientationchange", sizeCanvas);
 
     function posFromEvent(e) {
       const rect = canvas.getBoundingClientRect();
@@ -11915,6 +11928,10 @@ function useSignaturePad() {
       canvas.removeEventListener("touchmove", move);
       canvas.removeEventListener("touchend", stop);
       canvas.removeEventListener("touchcancel", stop);
+      clearTimeout(retryId);
+      window.removeEventListener("resize", sizeCanvas);
+      window.visualViewport?.removeEventListener("resize", sizeCanvas);
+      window.removeEventListener("orientationchange", sizeCanvas);
     };
   }, []);
 
@@ -11991,7 +12008,17 @@ async function renderEstimateAcceptanceImage({ doc, job, total, clientPrintedNam
   ctx.fillText("CLIENT SIGNATURE", pad, y); y += 10;
   const sigImg = new Image();
   await new Promise(res => { sigImg.onload = res; sigImg.src = sigDataUrl; });
-  ctx.drawImage(sigImg, pad, y, 340, 100);
+  // Fit within a 340x100 box without stretching — the captured signature's
+  // pixel dimensions come from the on-screen pad's own width/height (which
+  // varies by phone), so forcing it into that box at a fixed size squashed
+  // or stretched every signature. Scale to fit instead, and center it.
+  const sigBoxW = 340, sigBoxH = 100;
+  const sigScale = sigImg.naturalWidth && sigImg.naturalHeight
+    ? Math.min(sigBoxW / sigImg.naturalWidth, sigBoxH / sigImg.naturalHeight, 1)
+    : 1;
+  const sigDrawW = (sigImg.naturalWidth || sigBoxW) * sigScale;
+  const sigDrawH = (sigImg.naturalHeight || sigBoxH) * sigScale;
+  ctx.drawImage(sigImg, pad + (sigBoxW - sigDrawW) / 2, y + (sigBoxH - sigDrawH) / 2, sigDrawW, sigDrawH);
   y += 106;
   ctx.strokeStyle = "#333"; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + 340, y); ctx.stroke();
@@ -21313,7 +21340,7 @@ function PublicEstimateAcceptPage({ docId }) {
   const total = amountMatch ? amountMatch[1] : null;
 
   async function submitAcceptance() {
-    if (!sigPad.hasSig || !doc) return;
+    if (!sigPad.hasSig || !clientPrintedName.trim() || !doc) return;
     setSaving(true);
     try {
       const sigDataUrl = sigPad.toDataURL();
@@ -21389,7 +21416,14 @@ function PublicEstimateAcceptPage({ docId }) {
         ) : (
           <div style={{ background: BRAND.white, borderRadius: 16, padding: 20, boxShadow: "0 2px 12px rgba(29,76,146,0.1)" }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, textAlign: "center", marginBottom: 4 }}>Review & Accept Your Estimate</div>
-            {job?.customerName && <div style={{ fontSize: 13, color: BRAND.muted, textAlign: "center", marginBottom: 12 }}>{job.customerName}</div>}
+            {job?.customerName && <div style={{ fontSize: 13, color: BRAND.muted, textAlign: "center", marginBottom: 4 }}>{job.customerName}</div>}
+            <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>3 quick steps below — takes about a minute</div>
+
+            {/* Step 1 — Review */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ width: 22, height: 22, borderRadius: "50%", background: BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>1</span>
+              <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Review your estimate</span>
+            </div>
 
             {doc?.url && (
               <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
@@ -21410,26 +21444,41 @@ function PublicEstimateAcceptPage({ docId }) {
               </div>
             </div>
 
+            {/* Step 2 — Name */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
+              <span style={{ width: 22, height: 22, borderRadius: "50%", background: clientPrintedName.trim() ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{clientPrintedName.trim() ? "✓" : "2"}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Type your name</span>
+            </div>
             <div style={S.card}>
-              <label style={S.lbl}>Your Printed Name</label>
-              <input style={S.input} placeholder={job?.customerName || "Your name"} value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
+              <input style={S.input} placeholder={job?.customerName || "Your full name"} value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
             </div>
 
+            {/* Step 3 — Sign */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
+              <span style={{ width: 22, height: 22, borderRadius: "50%", background: sigPad.hasSig ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{sigPad.hasSig ? "✓" : "3"}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Sign below with your finger</span>
+            </div>
             <div style={S.card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <label style={{ ...S.lbl, margin: 0 }}>Your Signature</label>
-                {sigPad.hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
-              </div>
-              <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 8 }}>Sign with your finger or mouse below</div>
               <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
                 <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
               </div>
-              <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear</button>
+              <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear & try again</button>
             </div>
 
-            <button style={{ ...S.btn("primary"), opacity: (sigPad.hasSig && !saving) ? 1 : 0.4 }} disabled={!sigPad.hasSig || saving} onClick={submitAcceptance}>
+            <button
+              style={{ ...S.btn("primary"), marginTop: 16, opacity: (sigPad.hasSig && clientPrintedName.trim() && !saving) ? 1 : 0.4 }}
+              disabled={!sigPad.hasSig || !clientPrintedName.trim() || saving}
+              onClick={submitAcceptance}
+            >
               {saving ? "Submitting…" : "✓ Accept & Sign Estimate"}
             </button>
+            {(!sigPad.hasSig || !clientPrintedName.trim()) && (
+              <div style={{ textAlign: "center", fontSize: 12, color: "#B45309", marginTop: 8, fontWeight: 600 }}>
+                {!clientPrintedName.trim() && !sigPad.hasSig ? "Type your name and sign above to finish" :
+                 !clientPrintedName.trim() ? "Type your name above to finish" :
+                 "Sign above to finish"}
+              </div>
+            )}
 
             <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
               Questions before you sign? Call us at (509) 903-5744.
