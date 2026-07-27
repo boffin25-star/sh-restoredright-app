@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26m — Signature pad rebuilt on Pointer Events + ResizeObserver (unifies mouse/touch, avoids the resize/touch conflicts of the old implementation) — verified with an automated browser test";
+const BUILD_STAMP = "2026-07-26p — Signature pad: preventDefault now runs before setPointerCapture (which can throw for touch-type pointers on some real devices, silently letting the browser hijack the gesture) — verified with a forced-failure browser test; added ?debug=1 diagnostic overlay for the client sign page";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -11882,11 +11882,20 @@ function useSignaturePad() {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const [hasSig, setHasSig] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
+    if (typeof ResizeObserver === "undefined" || typeof PointerEvent === "undefined" || !canvas.getContext) {
+      // Every phone/browser released in the last several years supports
+      // these, but if a client somehow lands here on something ancient,
+      // show a clear message instead of a signature box that quietly does
+      // nothing (or, worse, a crash with no explanation at all).
+      setUnsupported(true);
+      return;
+    }
     const ctx = canvas.getContext("2d");
     let drawing = false;
     let pendingResize = false;
@@ -11932,25 +11941,30 @@ function useSignaturePad() {
     }
     function start(e) {
       if (e.button != null && e.button !== 0) return; // left click / primary touch only
+      // preventDefault FIRST, before anything else — if setPointerCapture
+      // below throws (a real quirk on some mobile browsers for touch-type
+      // pointers specifically, which a mouse-only test would never catch),
+      // the browser must still not be allowed to hijack the gesture into a
+      // page scroll/pan instead of drawing.
+      e.preventDefault();
       drawing = true;
-      canvas.setPointerCapture?.(e.pointerId);
+      try { canvas.setPointerCapture?.(e.pointerId); } catch {} // best-effort only
       const p = posFromEvent(e);
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
-      e.preventDefault();
     }
     function move(e) {
       if (!drawing) return;
+      e.preventDefault();
       const p = posFromEvent(e);
       ctx.lineTo(p.x, p.y);
       ctx.stroke();
       setHasSig(true);
-      e.preventDefault();
     }
     function stop(e) {
       if (!drawing) return;
       drawing = false;
-      if (e?.pointerId != null) canvas.releasePointerCapture?.(e.pointerId);
+      if (e?.pointerId != null) { try { canvas.releasePointerCapture?.(e.pointerId); } catch {} }
       if (pendingResize) {
         pendingResize = false;
         const rect = wrap.getBoundingClientRect();
@@ -11986,7 +12000,7 @@ function useSignaturePad() {
     return canvasRef.current ? canvasRef.current.toDataURL("image/png") : null;
   }
 
-  return { canvasRef, wrapRef, hasSig, clear, toDataURL };
+  return { canvasRef, wrapRef, hasSig, clear, toDataURL, unsupported };
 }
 
 // ─── Estimate Client Acceptance ────────────────────────────────────────────────
@@ -12160,9 +12174,15 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
             {sigPad.hasSig && <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 700 }}>✓ Signed</span>}
           </div>
           <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 8 }}>Hand the device to the client to sign</div>
-          <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
-            <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
-          </div>
+          {sigPad.unsupported ? (
+            <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: 12, fontSize: 12.5, color: "#991B1B" }}>
+              Signing isn't supported in this browser. Please try again in Safari or Chrome.
+            </div>
+          ) : (
+            <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", height: 180 }}>
+              <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent" }} />
+            </div>
+          )}
           <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear</button>
         </div>
 
@@ -21330,6 +21350,44 @@ function PublicCrewPage({ recordId }) {
 // for an estimate. No login — the client receiving the link isn't an app
 // user, same reasoning as /crew/:id above. Lets them review the actual
 // estimate image and sign right on their own phone or computer.
+// Visible only when the page URL has ?debug=1 on the end. Logs every
+// pointer event the browser delivers anywhere on the page, in real time,
+// plus basic device/API info — so if signing still fails on a real device,
+// a screenshot of this overlay shows exactly what did or didn't fire,
+// instead of another round of guessing blind.
+function TouchDebugOverlay() {
+  const [log, setLog] = useState([]);
+  const [enabled] = useState(() => typeof window !== "undefined" && window.location.search.includes("debug=1"));
+
+  useEffect(() => {
+    if (!enabled) return;
+    function record(e) {
+      setLog(l => [...l.slice(-7), `${e.type} ptr=${e.pointerId} type=${e.pointerType} (${Math.round(e.clientX)},${Math.round(e.clientY)}) tgt=${e.target?.tagName}`]);
+    }
+    window.addEventListener("pointerdown", record, true);
+    window.addEventListener("pointermove", record, true);
+    window.addEventListener("pointerup", record, true);
+    window.addEventListener("pointercancel", record, true);
+    return () => {
+      window.removeEventListener("pointerdown", record, true);
+      window.removeEventListener("pointermove", record, true);
+      window.removeEventListener("pointerup", record, true);
+      window.removeEventListener("pointercancel", record, true);
+    };
+  }, [enabled]);
+
+  if (!enabled) return null;
+  return (
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9999, background: "rgba(0,0,0,0.9)", color: "#0F0", fontFamily: "monospace", fontSize: 10, padding: 8, maxHeight: "35vh", overflowY: "auto" }}>
+      <div style={{ color: "#0FF", marginBottom: 4 }}>
+        UA: {navigator.userAgent.slice(0, 90)}<br/>
+        PointerEvent: {typeof PointerEvent !== "undefined" ? "yes" : "NO"} · ResizeObserver: {typeof ResizeObserver !== "undefined" ? "yes" : "NO"} · maxTouchPoints: {navigator.maxTouchPoints}
+      </div>
+      {log.length === 0 ? <div style={{ color: "#F80" }}>No pointer events received yet — touch the signature box.</div> : log.map((l, i) => <div key={i}>{l}</div>)}
+    </div>
+  );
+}
+
 function PublicEstimateAcceptPage({ docId }) {
   const [doc, setDoc] = useState(null);
   const [job, setJob] = useState(null);
@@ -21344,6 +21402,7 @@ function PublicEstimateAcceptPage({ docId }) {
   const [declineReason, setDeclineReason] = useState("");
   const [declining, setDeclining] = useState(false);
   const [declined, setDeclined] = useState(false);
+
 
   useEffect(() => {
     (async () => {
@@ -21453,6 +21512,7 @@ function PublicEstimateAcceptPage({ docId }) {
 
   return (
     <div style={{ minHeight: "100vh", background: BRAND.offWhite, display: "flex", justifyContent: "center", padding: "32px 16px", fontFamily: "inherit" }}>
+      <TouchDebugOverlay />
       <div style={{ width: "100%", maxWidth: 460 }}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
           <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 200, marginBottom: 8 }} />
@@ -21560,9 +21620,15 @@ function PublicEstimateAcceptPage({ docId }) {
                   <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Sign below with your finger</span>
                 </div>
                 <div style={S.card}>
-                  <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
-                    <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
-                  </div>
+                  {sigPad.unsupported ? (
+                    <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: 12, fontSize: 12.5, color: "#991B1B" }}>
+                      Signing isn't supported in this browser. Please open this link in Safari (iPhone) or Chrome (Android) and try again.
+                    </div>
+                  ) : (
+                    <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", height: 180 }}>
+                      <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent" }} />
+                    </div>
+                  )}
                   <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear & try again</button>
                 </div>
 
@@ -21682,7 +21748,7 @@ export default function App() {
   // Public route — /contact is reachable by anyone (QR code scans, shared
   // links) without logging in. Checked first, before any session/auth logic.
   if (typeof window !== "undefined" && window.location.pathname === "/contact") {
-    return <PublicContactPage />;
+    return <AppErrorBoundary><PublicContactPage /></AppErrorBoundary>;
   }
 
   // Public route — /crew/:id shows who's coming to a job (photo, vehicle)
@@ -21690,15 +21756,20 @@ export default function App() {
   // customer receiving the link isn't an app user.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/crew/")) {
     const recordId = window.location.pathname.split("/crew/")[1];
-    return <PublicCrewPage recordId={recordId} />;
+    return <AppErrorBoundary><PublicCrewPage recordId={recordId} /></AppErrorBoundary>;
   }
 
   // Public route — /accept-estimate/:docId lets a client who received an
   // estimate by text/email review it and sign to accept, right from their
   // own phone. No login — same reasoning as /crew/:id above.
+  // Wrapped in AppErrorBoundary: without it, any crash here (old browser,
+  // bad data, anything) leaves the client looking at a totally blank white
+  // page with zero indication of what happened — indistinguishable from
+  // "signing doesn't work" from their end, and impossible for us to debug
+  // after the fact. Now they'll at least see an actual error message.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/accept-estimate/")) {
     const docId = window.location.pathname.split("/accept-estimate/")[1];
-    return <PublicEstimateAcceptPage docId={docId} />;
+    return <AppErrorBoundary><PublicEstimateAcceptPage docId={docId} /></AppErrorBoundary>;
   }
 
   // Public route — /view-doc/:docId lets a client view/download an invoice,
@@ -21706,7 +21777,7 @@ export default function App() {
   // link, with no download-and-attach dance and no login required.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/view-doc/")) {
     const docId = window.location.pathname.split("/view-doc/")[1];
-    return <PublicDocumentViewPage docId={docId} />;
+    return <AppErrorBoundary><PublicDocumentViewPage docId={docId} /></AppErrorBoundary>;
   }
 
   // Stay logged in across visits — restore the saved session on load, but
