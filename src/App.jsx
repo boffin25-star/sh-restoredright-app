@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26q — Client estimate link: typing your name is now the electronic signature (no more drawing/canvas — sidesteps the touch issues entirely); tap the estimate/document image to view it enlarged";
+const BUILD_STAMP = "2026-07-26r — Restored the App Hub splash screen (Jobs & Operations / Planner / Leads & Social / Spend Analyzer) that was lost — rebuilt from prior session history";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -951,6 +951,221 @@ const S = {
   badge:    (bg, tx, bd) => ({ display: "inline-flex", alignItems: "center", fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: bg, color: tx, border: `1px solid ${bd}`, letterSpacing: 0.3 }),
   sect:     { fontSize: 12, fontWeight: 700, color: BRAND.muted, margin: "6px 0 10px", textTransform: "uppercase", letterSpacing: 0.5 },
 };
+
+
+// ─── App Hub Screen ───────────────────────────────────────────────────────────
+// Second splash shown after login & policy gate — lets the user pick which
+// S&H app they want to open. "main" navigates into the main job-tracker;
+// the others open external URLs in a new tab, then land on main anyway.
+// Rebuilt 2026-07-26 — this feature existed in an earlier build but was lost
+// (most likely a stale-file push overwrote it); reconstructed from prior
+// session history to match the last version Brandon approved.
+const APP_HUB_APPS = [
+  {
+    id: "main",
+    label: "Jobs & Operations",
+    subtitle: "Job tracking, receipts, schedules & more",
+    icon: "jobs",
+    color: "#1B3A6B",
+    dest: "main",
+  },
+  {
+    id: "planner",
+    label: "Planner App",
+    subtitle: "Project planning, timelines & tasks",
+    icon: "planner",
+    color: "#2563EB",
+    dest: "https://sh-strategy-planner.vercel.app/",
+  },
+  {
+    id: "leads",
+    label: "Leads & Social",
+    subtitle: "Lead pipeline & social media hub",
+    icon: "leads",
+    color: "#7C3AED",
+    dest: "https://sh-marketing-hub.vercel.app/",
+  },
+  {
+    id: "spend",
+    label: "Spend Analyzer",
+    subtitle: "Bank statements, tax set-asides & fuel costs",
+    icon: "spend",
+    color: "#166534",
+    dest: "https://sh-spend-analyzer.vercel.app",
+  },
+];
+
+// Thin line-icon set matching the main app's nav icon style (used instead of
+// emoji so the hub tiles look consistent with the rest of the app).
+function HubIcon({ name, size = 28, color = "#fff" }) {
+  const s = {
+    width: size,
+    height: size,
+    stroke: color,
+    fill: "none",
+    strokeWidth: 1.8,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    flexShrink: 0,
+    display: "block",
+  };
+  const icons = {
+    jobs: (
+      <>
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+        <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" />
+        <line x1="12" y1="12" x2="12" y2="12" strokeWidth={2.5} />
+        <path d="M2 11h8m4 0h8" />
+      </>
+    ),
+    planner: (
+      <>
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+        <line x1="8" y1="14" x2="10" y2="14" />
+        <line x1="8" y1="17" x2="10" y2="17" />
+        <line x1="14" y1="14" x2="16" y2="14" />
+      </>
+    ),
+    leads: (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="6" />
+        <circle cx="12" cy="12" r="2" />
+      </>
+    ),
+    spend: (
+      <>
+        <line x1="12" y1="20" x2="12" y2="10" />
+        <line x1="18" y1="20" x2="18" y2="4" />
+        <line x1="6" y1="20" x2="6" y2="16" />
+        <line x1="2" y1="20" x2="22" y2="20" />
+      </>
+    ),
+  };
+  return (
+    <svg viewBox="0 0 24 24" style={s}>
+      {icons[name]}
+    </svg>
+  );
+}
+
+function AppHubScreen({ user, onSelect }) {
+  const firstName = user?.name?.split(" ")[0] || "there";
+  return (
+    <div style={{
+      ...S.app,
+      minHeight: "100vh",
+      alignItems: "center",
+      justifyContent: "center",
+      background: BRAND.navy,
+    }}>
+      <div style={{
+        width: "100%",
+        maxWidth: 430,
+        minHeight: "100vh",
+        background: BRAND.offWhite,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: "40px 20px 32px",
+        boxSizing: "border-box",
+      }}>
+        <img
+          src={`data:image/png;base64,${LOGO_WIDE_B64}`}
+          alt="S&H Services"
+          style={{ width: 180, marginBottom: 18 }}
+        />
+
+        <div style={{ fontSize: 22, fontWeight: 800, color: BRAND.navy, marginBottom: 4, textAlign: "center" }}>
+          Welcome back, {firstName}!
+        </div>
+        <div style={{ fontSize: 14, color: BRAND.muted, marginBottom: 32, textAlign: "center" }}>
+          Where would you like to go?
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
+          {APP_HUB_APPS.map(app => (
+            <button
+              key={app.id}
+              onClick={() => onSelect(app.dest)}
+              style={{
+                width: "100%",
+                background: app.color,
+                border: "none",
+                borderRadius: 16,
+                padding: "20px 22px",
+                display: "flex",
+                alignItems: "center",
+                gap: 18,
+                cursor: "pointer",
+                boxShadow: "0 4px 16px rgba(27,58,107,0.18)",
+                transition: "transform 0.12s, box-shadow 0.12s",
+                textAlign: "left",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = "scale(1.025)";
+                e.currentTarget.style.boxShadow = "0 8px 24px rgba(27,58,107,0.28)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "";
+                e.currentTarget.style.boxShadow = "0 4px 16px rgba(27,58,107,0.18)";
+              }}
+            >
+              <div style={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}>
+                <HubIcon name={app.icon} size={26} color="#fff" />
+              </div>
+
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 3, letterSpacing: "-0.1px" }}>
+                  {app.label}
+                </div>
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.72)", lineHeight: 1.35 }}>
+                  {app.subtitle}
+                </div>
+              </div>
+
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="rgba(255,255,255,0.6)" strokeWidth="2.2"
+                strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => onSelect("main")}
+          style={{
+            marginTop: 28,
+            background: "none",
+            border: "none",
+            color: BRAND.muted,
+            fontSize: 14,
+            cursor: "pointer",
+            textDecoration: "underline",
+            textDecorationColor: "transparent",
+          }}
+          onMouseEnter={e => e.currentTarget.style.textDecorationColor = BRAND.muted}
+          onMouseLeave={e => e.currentTarget.style.textDecorationColor = "transparent"}
+        >
+          Skip — go to Jobs & Operations
+        </button>
+      </div>
+    </div>
+  );
+}
 
 
 // ─── Business Rules & Governance ─────────────────────────────────────────────
@@ -21838,6 +22053,7 @@ export default function App() {
     if (u?.name) subscribeToPush(u.name);
   }
   const [tab, setTab]     = useState("home");
+  const [showAppHub, setShowAppHub] = useState(true); // show app-selector splash after login/policy gate
   // Set by the Home screen's Quick Actions panel for the two actions that
   // need a real tab to do safely (mileage's GPS tracking only exists while
   // that tab is mounted; receipts just reuses its own Add form) — the tab
@@ -22276,6 +22492,16 @@ export default function App() {
 
   if (!user) return (
     <AppErrorBoundary><div style={S.app}><LoginScreen onLogin={handleLogin} /></div></AppErrorBoundary>
+  );
+
+  // ── App Hub Splash ── shown after the policy gate, before the main app.
+  // Flow: Login → Policy Gate (if needed) → App Hub → Main App
+  if (showAppHub) return (
+    <AppErrorBoundary>
+      <PolicyAcknowledgmentGate user={user}>
+        <AppHubScreen user={user} onSelect={(dest) => { setShowAppHub(false); if (dest !== "main") window.open(dest, "_blank"); }} />
+      </PolicyAcknowledgmentGate>
+    </AppErrorBoundary>
   );
 
   const tabs = getUserTabs(user);
