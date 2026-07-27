@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26u — Desktop view: Jobs list and Contacts now lay out in a multi-column grid on laptop/desktop instead of one long column; Job Detail width is capped so forms don't stretch awkwardly wide (Leads/Tasks/Receipts/Docs/Rates/Materials not yet done — separate follow-up)";
+const BUILD_STAMP = "2026-07-26w — Purchase approval threshold is now editable in Admin tab (was hardcoded, and two conflicting values existed); rebuilt the schedule-conflict warning — editing a job's Scheduled Date now checks for overlapping jobs live and warns before saving, with owners additionally notified for sign-off";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1189,12 +1189,40 @@ function AppHubScreen({ user, onSelect, isDesktopView }) {
 
 
 // ─── Business Rules & Governance ─────────────────────────────────────────────
-const BR_APPROVAL_THRESHOLD = 200;       // dollars — purchases at or above need dual-owner approval
+// (Purchase approval threshold is now an admin-editable setting — see
+// getLargePurchaseThreshold() below — not a hardcoded constant.)
 const BR_APPROVAL_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours in ms
 const BR_BUFFER_HOURS_MIN = 24;          // minimum hours between jobs (hard conflict)
 const BR_BUFFER_HOURS_PREF = 48;         // preferred buffer (soft conflict)
 const BR_CO_OWNERS = ["Brandon", "Erik"]; // only these two trigger the approval flow
 const BR_POLICY_VERSION = "1.0";
+
+// Given the full jobs list, the job being scheduled, and a proposed date,
+// finds the nearest conflicting job (if any). Pure/synchronous so it can
+// run live as someone types a date, before anything is saved — shared by
+// the inline warning shown to every user and the owner-to-owner
+// negotiation flow (brCheckScheduleConflict) below, so both always agree
+// on what counts as a conflict.
+function findScheduleConflict(jobs, jobId, proposedDate) {
+  if (!proposedDate) return null;
+  const proposed = new Date(proposedDate); proposed.setHours(0, 0, 0, 0);
+  let conflictingJob = null, conflictType = null, bufferGap = null;
+  for (const j of (jobs || [])) {
+    if (j.id === jobId) continue;
+    if (!j.scheduledDate && !j.startDate) continue;
+    if (["Done", "Cancelled"].includes(j.status)) continue;
+    const existing = new Date(j.scheduledDate || j.startDate); existing.setHours(0, 0, 0, 0);
+    const diffH = Math.abs(proposed - existing) / 3600000;
+    if (diffH < BR_BUFFER_HOURS_MIN) { conflictingJob = j; conflictType = diffH === 0 ? "same_day" : "same_time_block"; bufferGap = BR_BUFFER_HOURS_MIN - diffH; break; }
+    if (diffH < BR_BUFFER_HOURS_PREF && !conflictingJob) { conflictingJob = j; conflictType = "buffer_violation"; bufferGap = BR_BUFFER_HOURS_MIN - diffH; }
+  }
+  return conflictingJob ? { conflictingJob, conflictType, bufferGap } : null;
+}
+function scheduleConflictLabel(conflictType) {
+  if (conflictType === "same_day") return "same day as an existing job";
+  if (conflictType === "same_time_block") return "overlapping with an existing job";
+  return `within ${BR_BUFFER_HOURS_MIN}h of an existing job`;
+}
 
 function brGetOtherOwner(userName) {
   return BR_CO_OWNERS.find(n => n !== userName) || null;
@@ -4545,7 +4573,7 @@ function ReceiptSection({ job, onUpdate, user }) {
     if (file) setReceiptFile(file);
   }
 
-  const isLargePurchase = parseFloat(form.amount || 0) > LARGE_PURCHASE_THRESHOLD;
+  const isLargePurchase = parseFloat(form.amount || 0) > getLargePurchaseThreshold();
 
   // Notify Brandon, Erik, and Matt that a purchase needs approval before it's made —
   // same mechanism as Change Order approval notifications.
@@ -4744,7 +4772,7 @@ function ReceiptSection({ job, onUpdate, user }) {
 
           {isLargePurchase && (
             <div style={{ marginTop: 10, background: "#FFF9EC", border: "1px solid #FDE68A", borderRadius: 9, padding: "10px 12px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E" }}>💰 Over ${LARGE_PURCHASE_THRESHOLD} — Approval Required</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E" }}>💰 Over ${getLargePurchaseThreshold()} — Approval Required</div>
               <div style={{ fontSize: 11, color: "#78350F", marginTop: 3, lineHeight: 1.4 }}>
                 This will send a request to Brandon, Erik, and Matt instead of saving a receipt. Don't make the purchase until it's approved — you'll get notified and can add the receipt once it's bought.
               </div>
@@ -6089,7 +6117,30 @@ async function rejectChangeOrderAsCompany(job, orderId, reason, approverName) {
 // Any purchase over this amount requires sign-off from Brandon, Erik, or Matt
 // BEFORE the purchase is made. Once approved, the requester converts the
 // approved request into an actual receipt with the real purchase + photo.
-const LARGE_PURCHASE_THRESHOLD = 300;
+// Purchases at or above this amount require dual-owner approval. Used to be
+// a hardcoded constant (and disagreed with a separate, unused
+// BR_APPROVAL_THRESHOLD=200 constant elsewhere — only this one was ever
+// actually checked). Now it's a real editable setting, admin-only, stored
+// in company_policy so Brandon/Erik can change it from the Admin tab
+// without needing a code change. 300 is the fallback until it loads.
+let _largePurchaseThreshold = 300;
+async function loadLargePurchaseThreshold() {
+  try {
+    const rows = await sbFetch("company_policy?id=eq.current&select=large_purchase_threshold");
+    if (rows?.[0]?.large_purchase_threshold != null) {
+      _largePurchaseThreshold = Number(rows[0].large_purchase_threshold);
+    }
+  } catch {}
+}
+function getLargePurchaseThreshold() { return _largePurchaseThreshold; }
+async function saveLargePurchaseThreshold(value, userName) {
+  await sbFetch("company_policy?id=eq.current", {
+    method: "PATCH",
+    headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+    body: JSON.stringify({ large_purchase_threshold: value, updated_by: userName, updated_at: new Date().toISOString() }),
+  });
+  _largePurchaseThreshold = value;
+}
 
 function purchaseReqStatus(p) {
   return p.status || "pending"; // pending | approved | rejected | purchased
@@ -9404,11 +9455,15 @@ function JobMileageSection({ job, user }) {
   );
 }
 
-function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
+function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs, onCheckScheduleConflict }) {
   const showDollars = canSeeDollars(user);
   const allowDelete = canDelete(user);
   const [editing, setEditing] = useState(false);
   const [showOnMyWay, setShowOnMyWay] = useState(false);
+  // Whether they've explicitly acknowledged an overlapping-jobs warning for
+  // the currently-picked scheduled date. Resets whenever the date changes,
+  // so a different conflicting date always needs a fresh acknowledgment.
+  const [conflictAck, setConflictAck] = useState(false);
   const [fields, setFields] = useState({
     customerName: job.customerName, customerPhone: job.customerPhone,
     customerCellPhone: job.customerCellPhone || "",
@@ -9453,13 +9508,36 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
   }, [job.id]);
 
   function setF(k, v) { setFields(f => ({ ...f, [k]: v })); }
+  // Dedicated setter for the date field so picking a different date always
+  // clears any prior acknowledgment — they need to see and confirm the
+  // warning again for whatever date they land on.
+  function setScheduledDate(v) {
+    setFields(f => ({ ...f, scheduledDate: v }));
+    setConflictAck(false);
+  }
+
+  // Live check — runs as soon as a scheduled date is picked in edit mode,
+  // before anything is saved, so the warning is impossible to miss.
+  const dateChanged = editing && fields.scheduledDate && fields.scheduledDate !== (job.scheduledDate || "");
+  const scheduleConflict = dateChanged ? findScheduleConflict(jobs, job.id, fields.scheduledDate) : null;
+  const isCoOwner = BR_CO_OWNERS.includes(user?.name);
 
   async function save() {
+    if (scheduleConflict && !conflictAck) return; // Save button is disabled in this state too — belt and suspenders
     setSaving(true);
     try {
       await onUpdate({ ...job, ...fields }, false);
+      // They've acknowledged the overlap and saved anyway. If they're a
+      // co-owner, also let the other owner know — same dual-visibility
+      // pattern as large purchases — so nobody's double-booked without the
+      // other one finding out. This doesn't block the save; it's an FYI
+      // they can object to or counter-propose from their own notifications.
+      if (scheduleConflict && isCoOwner) {
+        onCheckScheduleConflict?.(job.id, fields.scheduledDate, fields.customerName).catch(() => {});
+      }
       setToast({ msg: "Saved!", ok: true });
       setEditing(false);
+      setConflictAck(false);
     } catch {
       setToast({ msg: "Save failed", ok: false });
     }
@@ -9482,7 +9560,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
           {editing ? "Cancel" : "✏️ Edit"}
         </button>
         {editing && (
-          <button onClick={save} disabled={saving} style={{ background: BRAND.gold, border: "none", borderRadius: 8, color: BRAND.navy, fontSize: 12, fontWeight: 700, padding: "6px 12px", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+          <button onClick={save} disabled={saving || (scheduleConflict && !conflictAck)} style={{ background: BRAND.gold, border: "none", borderRadius: 8, color: BRAND.navy, fontSize: 12, fontWeight: 700, padding: "6px 12px", cursor: "pointer", opacity: (saving || (scheduleConflict && !conflictAck)) ? 0.6 : 1 }}>
             {saving ? "Saving…" : "💾 Save"}
           </button>
         )}
@@ -9765,13 +9843,30 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
                   </div>
                   <div>
                     <label style={S.lbl}>Scheduled</label>
-                    <input style={S.input} type="date" value={fields.scheduledDate} onChange={e => setF("scheduledDate", e.target.value)} />
+                    <input style={S.input} type="date" value={fields.scheduledDate} onChange={e => setScheduledDate(e.target.value)} />
                   </div>
                   <div>
                     <label style={S.lbl}>Completed</label>
                     <input style={S.input} type="date" value={fields.completedDate} onChange={e => setF("completedDate", e.target.value)} />
                   </div>
                 </div>
+
+                {scheduleConflict && (
+                  <div style={{ background: "#FFF7ED", border: "1.5px solid #FDBA74", borderRadius: 10, padding: 12, marginTop: 10 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#9A3412", marginBottom: 3 }}>⚠️ This overlaps with another job</div>
+                    <div style={{ fontSize: 12, color: "#7C2D12", lineHeight: 1.4, marginBottom: 8 }}>
+                      <strong>{scheduleConflict.conflictingJob.customerName}</strong> is scheduled for{" "}
+                      {fmtDate(scheduleConflict.conflictingJob.scheduledDate || scheduleConflict.conflictingJob.startDate)} — {scheduleConflictLabel(scheduleConflict.conflictType)}.
+                    </div>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: "#7C2D12", cursor: "pointer" }}>
+                      <input type="checkbox" checked={conflictAck} onChange={e => setConflictAck(e.target.checked)} style={{ marginTop: 2 }} />
+                      <span>
+                        I understand this overlaps — schedule anyway.
+                        {isCoOwner && ` ${brGetOtherOwner(user.name) || "The other owner"} will be notified.`}
+                      </span>
+                    </label>
+                  </div>
+                )}
 
                 {/* Payment Status — authorized users only */}
                 {showDollars && <div style={{ marginTop: 16 }}>
@@ -9845,7 +9940,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
                   </div>
                 </div>}
 
-                <button style={{ ...S.btn("primary"), opacity: saving ? 0.6 : 1, marginTop: 16 }} onClick={save} disabled={saving}>
+                <button style={{ ...S.btn("primary"), opacity: (saving || (scheduleConflict && !conflictAck)) ? 0.6 : 1, marginTop: 16 }} onClick={save} disabled={saving || (scheduleConflict && !conflictAck)}>
                   {saving ? "Saving…" : "Save All Changes"}
                 </button>
               </div>
@@ -9945,7 +10040,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView }) {
 }
 
 // ─── Jobs List ────────────────────────────────────────────────────────────────
-function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate, isDesktopView }) {
+function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate, isDesktopView, onCheckScheduleConflict }) {
   const [payFilter, setPayFilter] = useState("All");
   const [sortBy, setSortBy] = useState("submittedAt");
   const [sortDir, setSortDir] = useState("desc");
@@ -10047,7 +10142,7 @@ function JobsList({ jobs, setJobs, loading, onRefresh, user, onNavigate, isDeskt
     <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column" }}>
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
       <OnboardingChecklist user={user} onNavigate={onNavigate} onClose={() => {}} />
-      {detailJob && <JobDetail job={detailJob} onBack={() => setDetailId(null)} onUpdate={handleUpdate} onDelete={handleDelete} user={user} isDesktopView={isDesktopView} />}
+      {detailJob && <JobDetail job={detailJob} onBack={() => setDetailId(null)} onUpdate={handleUpdate} onDelete={handleDelete} user={user} isDesktopView={isDesktopView} jobs={jobs} onCheckScheduleConflict={onCheckScheduleConflict} />}
       <div style={S.scroll}>
         {/* Search row */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -12446,7 +12541,7 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
 }
 
 // ─── Docs Tab ─────────────────────────────────────────────────────────────────
-function DocsTab({ user, jobs }) {
+function DocsTab({ user, jobs, isDesktopView }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -12620,7 +12715,9 @@ function DocsTab({ user, jobs }) {
             <div style={{ fontSize: 15, fontWeight: 700, color: BRAND.navy }}>No documents yet</div>
             <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 4 }}>Upload flyers, pricing sheets, or sales materials</div>
           </div>
-        ) : docs.map(doc => (
+        ) : (
+          <div style={isDesktopView ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 } : undefined}>
+          {docs.map(doc => (
           <div key={doc.id} style={S.card}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
               <div style={{ fontSize: 32, flexShrink: 0 }}>{fileIcon(doc.name)}</div>
@@ -12668,6 +12765,8 @@ function DocsTab({ user, jobs }) {
             </div>
           </div>
         ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -12977,7 +13076,7 @@ async function deleteStandaloneReceipt(id) {
 }
 
 // ─── Standalone Receipts Tab ──────────────────────────────────────────────────
-function StandaloneReceiptsTab({ user, autoAdd, onConsumeAutoAdd }) {
+function StandaloneReceiptsTab({ user, autoAdd, onConsumeAutoAdd, isDesktopView }) {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -13186,7 +13285,9 @@ function StandaloneReceiptsTab({ user, autoAdd, onConsumeAutoAdd }) {
             <div style={{ fontSize: 15, fontWeight: 700, color: BRAND.navy }}>No receipts yet</div>
             <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 4 }}>Add receipts not tied to a specific job</div>
           </div>
-        ) : visible.map(r => (
+        ) : (
+          <div style={isDesktopView ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 } : undefined}>
+          {visible.map(r => (
           <div key={r.id} style={{ ...S.card, borderLeft: `4px solid ${BRAND.gold}` }}>
             {editingId === r.id ? (
               <>
@@ -13247,6 +13348,8 @@ function StandaloneReceiptsTab({ user, autoAdd, onConsumeAutoAdd }) {
             )}
           </div>
         ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -14395,7 +14498,7 @@ async function deleteMaterialPrice(id) {
   await sbFetch(`material_prices?id=eq.${id}`, { method: "DELETE" });
 }
 
-function MaterialPricesTab({ user }) {
+function MaterialPricesTab({ user, isDesktopView }) {
   const isAdmin = canAdmin(user);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14863,7 +14966,8 @@ function MaterialPricesTab({ user }) {
             {items.length === 0 ? "No prices yet — add one or import a supplier price sheet." : "No matches for this search."}
           </div>
         ) : (
-          grouped.map(group => {
+          <div style={isDesktopView ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 } : undefined}>
+          {grouped.map(group => {
             const best = group.entries[0];
             const others = group.entries.slice(1);
             const isExpanded = expandedItem === group.key;
@@ -14929,7 +15033,8 @@ function MaterialPricesTab({ user }) {
                 )}
               </div>
             );
-          })
+          })}
+          </div>
         )}
       </div>
     </div>
@@ -15908,7 +16013,7 @@ async function deleteGoingRate(id) {
 
 const BLANK_RATE = { category: "Roofing", workType: "", rateLow: "", rateHigh: "", unit: "per sq ft", source: "", notes: "" };
 
-function GoingRatesTab({ user }) {
+function GoingRatesTab({ user, isDesktopView }) {
   const isAdmin = canAdmin(user);
   const [rates, setRates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16284,6 +16389,7 @@ function GoingRatesTab({ user }) {
         ) : Object.entries(grouped).map(([category, catRates]) => (
           <div key={category} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: BRAND.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>{category} ({catRates.length})</div>
+            <div style={isDesktopView ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 4 } : undefined}>
             {catRates.map(r => (
               <div key={r.id} style={S.card}>
                 {editingId === r.id ? (
@@ -16330,6 +16436,7 @@ function GoingRatesTab({ user }) {
                 )}
               </div>
             ))}
+            </div>
           </div>
         ))}
       </div>
@@ -17002,6 +17109,23 @@ function AdminTab({ user, onShowPolicy }) {
   const [policyLoading, setPolicyLoading] = useState(false);
   const [policySaving, setPolicySaving] = useState(false);
 
+  // ── Purchase Approval Threshold ──
+  const [thresholdValue, setThresholdValue] = useState(() => String(getLargePurchaseThreshold()));
+  const [thresholdSaving, setThresholdSaving] = useState(false);
+  async function saveThreshold() {
+    const n = parseFloat(thresholdValue);
+    if (!(n > 0)) { showToast("Enter a valid dollar amount.", false); return; }
+    if (!["brandon", "erik"].includes(user?.id)) { showToast("Only Brandon or Erik can change this.", false); return; }
+    setThresholdSaving(true);
+    try {
+      await saveLargePurchaseThreshold(n, user.name);
+      showToast(`✅ Purchase approval threshold set to $${n.toFixed(0)}`);
+    } catch (e) {
+      showToast("Failed to save: " + (e?.message?.slice(0,80) || ""), false);
+    }
+    setThresholdSaving(false);
+  }
+
   async function loadPolicy() {
     setPolicyLoading(true);
     try {
@@ -17302,6 +17426,32 @@ function AdminTab({ user, onShowPolicy }) {
 
         {/* ── Send Push Notification ── */}
         <NotificationTestCard directory={directory} showToast={showToast} />
+
+        {/* ── Purchase Approval Threshold ── */}
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy, marginBottom: 4 }}>💰 Purchase Approval Threshold</div>
+          <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 10, lineHeight: 1.4 }}>
+            Purchases over this amount require Brandon or Erik's approval before they can be bought.
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: BRAND.muted, fontSize: 15, fontWeight: 700 }}>$</span>
+              <input
+                type="number" min="1" step="1" value={thresholdValue}
+                onChange={e => setThresholdValue(e.target.value)}
+                disabled={!["brandon", "erik"].includes(user?.id)}
+                style={{ ...S.input, paddingLeft: 24 }}
+              />
+            </div>
+            {["brandon", "erik"].includes(user?.id) ? (
+              <button onClick={saveThreshold} disabled={thresholdSaving} style={{ ...S.btn("primary"), marginTop: 0, width: "auto", padding: "11px 18px", opacity: thresholdSaving ? 0.6 : 1 }}>
+                {thresholdSaving ? "Saving…" : "Save"}
+              </button>
+            ) : (
+              <span style={{ fontSize: 11, color: BRAND.muted, whiteSpace: "nowrap" }}>Owners only</span>
+            )}
+          </div>
+        </div>
 
         {/* ── Team Members directory ── */}
         <div style={{ ...S.card, marginBottom: 16 }}>
@@ -18183,7 +18333,7 @@ function LeadFormFields({ form, setF, user }) {
   );
 }
 
-function LeadsTab({ user }) {
+function LeadsTab({ user, isDesktopView }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
@@ -18616,7 +18766,9 @@ function LeadsTab({ user }) {
             <div style={{ fontSize: 15, fontWeight: 700, color: BRAND.navy }}>No leads yet</div>
             <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 4 }}>Tap + Add to track your first sales lead</div>
           </div>
-        ) : visible.map(l => {
+        ) : (
+          <div style={isDesktopView ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 } : undefined}>
+          {visible.map(l => {
           const n = norm(l);
           const st = LEAD_STATUSES.find(s => s.value === n.status) || LEAD_STATUSES[0];
           const today = new Date(); today.setHours(0,0,0,0);
@@ -18665,6 +18817,8 @@ function LeadsTab({ user }) {
             </div>
           );
         })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -19151,8 +19305,13 @@ function TaskDetailModal({ task, jobs, user, onClose, onJobUpdate, onStandaloneU
 }
 
 // ─── My Tasks Tab ─────────────────────────────────────────────────────────────
-function MyTasksTab({ jobs, user, onRefresh }) {
+function MyTasksTab({ jobs, user, onRefresh, isDesktopView }) {
   const isAdmin = canAdmin(user);
+  // Same pattern as Jobs/Contacts — card lists lay out in a responsive
+  // multi-column grid on laptop/desktop instead of one long column.
+  const cardGridStyle = isDesktopView
+    ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 4 }
+    : undefined;
   const [viewingUser, setViewingUser] = useState(isAdmin ? "All" : (user?.name || ""));
   const [statusFilter, setStatusFilter] = useState("Active");
   const [savingId, setSavingId] = useState(null);
@@ -19557,6 +19716,7 @@ function MyTasksTab({ jobs, user, onRefresh }) {
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", marginBottom: 8, marginTop: 4 }}>
                     🔄 Change orders needing your sign-off as S&H Services
                   </div>
+                  <div style={cardGridStyle}>
                   {pendingApprovals.map(o => (
                     <div key={o.id} style={{ ...S.card, borderLeft: "4px solid #B45309" }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{o.jobCustomer}</div>
@@ -19580,6 +19740,7 @@ function MyTasksTab({ jobs, user, onRefresh }) {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </>
               )}
 
@@ -19588,6 +19749,7 @@ function MyTasksTab({ jobs, user, onRefresh }) {
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", marginBottom: 8, marginTop: pendingApprovals.length > 0 ? 16 : 4 }}>
                     💰 Large purchases needing your approval
                   </div>
+                  <div style={cardGridStyle}>
                   {pendingPurchaseApprovals.map(p => (
                     <div key={p.id} style={{ ...S.card, borderLeft: "4px solid #B45309" }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy }}>{p.jobCustomer}</div>
@@ -19608,6 +19770,7 @@ function MyTasksTab({ jobs, user, onRefresh }) {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </>
               )}
             </AccordionItem>
@@ -19622,6 +19785,7 @@ function MyTasksTab({ jobs, user, onRefresh }) {
                     🔥 {urgentCount} urgent — shown first
                   </div>
                 )}
+                <div style={cardGridStyle}>
                 {g.tasks.map(t => {
                   const st = TASK_STATUSES.find(s => s.value === t.status) || TASK_STATUSES[0];
                   const pr = PRIORITIES.find(p => p.value === t.priority);
@@ -19705,6 +19869,7 @@ function MyTasksTab({ jobs, user, onRefresh }) {
                     </div>
                   );
                 })}
+                </div>
               </AccordionItem>
             );
           })}
@@ -22252,30 +22417,26 @@ export default function App() {
   }
 
   // Check for scheduling conflicts before saving a date
+  // Creates a pending schedule-conflict record and pings the other owner so
+  // they're aware and can authorize, object, or counter-propose via
+  // ScheduleConflictModal — same dual-owner pattern as purchase approvals,
+  // including a 4-hour auto-authorize window. Only fires for Brandon/Erik;
+  // everyone else just sees the plain inline warning (see JobDetail) and
+  // proceeds on their own say-so, matching how this was originally scoped.
   async function brCheckScheduleConflict(jobId, proposedDate, jobCustomer) {
     if (!proposedDate || !BR_CO_OWNERS.includes(user?.name)) return false;
-    const proposed = new Date(proposedDate); proposed.setHours(0,0,0,0);
-    let conflictingJob = null, conflictType = null, bufferGap = null;
-    for (const j of jobs) {
-      if (j.id === jobId) continue;
-      if (!j.scheduledDate && !j.startDate) continue;
-      if (["Done","Cancelled"].includes(j.status)) continue;
-      const existing = new Date(j.scheduledDate || j.startDate); existing.setHours(0,0,0,0);
-      const diffH = Math.abs(proposed - existing) / 3600000;
-      if (diffH < 24) { conflictingJob=j; conflictType=diffH===0?"same_day":"same_time_block"; bufferGap=BR_BUFFER_HOURS_MIN-diffH; break; }
-      if (diffH < BR_BUFFER_HOURS_PREF && !conflictingJob) { conflictingJob=j; conflictType="buffer_violation"; bufferGap=BR_BUFFER_HOURS_MIN-diffH; if(diffH<BR_BUFFER_HOURS_MIN)break; }
-    }
-    if (!conflictingJob) return false;
+    const found = findScheduleConflict(jobs, jobId, proposedDate);
+    if (!found) return false;
+    const { conflictingJob, conflictType, bufferGap } = found;
     const otherOwner = brGetOtherOwner(user.name);
     const now = new Date();
     const record = { id:`sc-${Date.now()}`, job_id:jobId, job_customer:jobCustomer||null, conflicting_job_id:conflictingJob.id, conflicting_job_customer:conflictingJob.customerName||null, proposed_date:proposedDate, conflict_type:conflictType, buffer_hours_gap:bufferGap, proposals:[{ proposed_by:user.name, proposed_date:proposedDate, proposed_at:now.toISOString(), message:`Scheduling ${jobCustomer||"job"} on ${proposedDate}` }], status:"pending", initiated_by:user.name, auto_authorize_at:new Date(now.getTime()+BR_APPROVAL_WINDOW_MS).toISOString() };
     await sbFetch("schedule_conflicts", { method:"POST", headers:{ ...SB_HEADERS, Prefer:"return=minimal" }, body: JSON.stringify(record) });
     if (otherOwner) {
-      const label = conflictType==="same_day"?"same day as an existing job":conflictType==="same_time_block"?"overlapping with an existing job":`within ${BR_BUFFER_HOURS_MIN}h of an existing job`;
-      await pushToUser(otherOwner, { title:`📅 Schedule Conflict: ${jobCustomer||"New Job"}`, body:`${user.name} wants to schedule ${jobCustomer||"a job"} on ${proposedDate} — ${label}. Tap to authorize, object, or propose a new date.`, tag:"schedule-conflict" });
+      await pushToUser(otherOwner, { title:`📅 Schedule Conflict: ${jobCustomer||"New Job"}`, body:`${user.name} scheduled ${jobCustomer||"a job"} on ${proposedDate} — ${scheduleConflictLabel(conflictType)}. Tap to authorize, object, or propose a new date.`, tag:"schedule-conflict" });
     }
     await brRefreshConflicts();
-    return true; // conflict detected — caller should NOT save the date
+    return true;
   }
 
   // Approve/reject a change order directly from the notification panel or My Tasks,
@@ -22522,7 +22683,7 @@ export default function App() {
     async function initAndNotify() {
       setLoading(true);
       try {
-        await Promise.all([loadEmployees(), loadPermissions(), loadProfilePics()]);
+        await Promise.all([loadEmployees(), loadPermissions(), loadProfilePics(), loadLargePurchaseThreshold()]);
         const data = await fetchJobs();
         setJobs(data);
         setInitErr(null);
@@ -22998,19 +23159,19 @@ export default function App() {
         ) : (
           <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} />}
-            {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} />}
+            {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} onCheckScheduleConflict={brCheckScheduleConflict} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
             {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
             {tab==="contacts"  && (() => { markFeatureSeen("contacts"); return <ContactsTab user={user} isDesktopView={isDesktopView} />; })()}
-            {tab==="receipts"  && <StandaloneReceiptsTab user={user} autoAdd={quickAction === "addReceipt"} onConsumeAutoAdd={() => setQuickAction(null)} />}
+            {tab==="receipts"  && <StandaloneReceiptsTab user={user} autoAdd={quickAction === "addReceipt"} onConsumeAutoAdd={() => setQuickAction(null)} isDesktopView={isDesktopView} />}
             {tab==="costcalc"  && <JobCostCalcTab user={user} />}
-            {tab==="rates"     && <GoingRatesTab user={user} />}
-            {tab==="materials" && <MaterialPricesTab user={user} />}
+            {tab==="rates"     && <GoingRatesTab user={user} isDesktopView={isDesktopView} />}
+            {tab==="materials" && <MaterialPricesTab user={user} isDesktopView={isDesktopView} />}
             {tab==="mileage"   && (() => { markFeatureSeen("mileage"); return <MileageTab user={user} jobs={jobs} autoStartTrip={quickAction === "startTrip"} onConsumeAutoStart={() => setQuickAction(null)} />; })()}
-            {tab==="docs"      && <DocsTab user={user} jobs={jobs} />}
+            {tab==="docs"      && <DocsTab user={user} jobs={jobs} isDesktopView={isDesktopView} />}
             {tab==="contracts" && <DocTypeTab user={user} jobs={jobs} docType="contract" title="Contracts" icon="📝" emptyMsg="No contracts yet. Create one from the Docs tab." />}
-            {tab==="tasks"     && <MyTasksTab jobs={jobs} user={user} onRefresh={loadJobs} />}
-            {tab==="leads"     && <LeadsTab user={user} />}
+            {tab==="tasks"     && <MyTasksTab jobs={jobs} user={user} onRefresh={loadJobs} isDesktopView={isDesktopView} />}
+            {tab==="leads"     && <LeadsTab user={user} isDesktopView={isDesktopView} />}
             {tab==="invoices"  && <DocTypeTab user={user} jobs={jobs} docType="invoice" title="Invoices" icon="💰" emptyMsg="No invoices yet. Upload one from the Docs tab." />}
             {tab==="estimates" && <DocTypeTab user={user} jobs={jobs} docType="estimate" title="Estimates" icon="📐" emptyMsg="No estimates yet. Tap Create Estimate above to put together a bid for a client." />}
             {tab==="backup"    && <BackupTab jobs={jobs} user={user} />}
