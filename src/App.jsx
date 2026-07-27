@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-26j — Client estimate-signing page walks through 3 clear steps + fixed signature pad mis-sizing on mobile (resize/keyboard) and squished signature on the saved record";
+const BUILD_STAMP = "2026-07-26k — Client estimate page: explicit Accept/Decline choice, no name pre-filled, signature stays the last step before Accept & Sign";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -997,6 +997,36 @@ async function notifyOwnersToScheduleJob(job, { contextLabel, createdBy }) {
     body: `${job.customerName || "A client"} accepted their estimate — time to get it on the calendar.`,
     url: "/",
     tag: "schedule-job",
+  });
+}
+
+// Fired when a client explicitly declines an estimate from the remote
+// sign-link (PublicEstimateAcceptPage). Doesn't touch the job at all — it
+// stays right where it was as an open Estimate — this just makes sure the
+// decline can't get missed: a high-priority task + push to both owners.
+async function notifyOwnersOfDecline(job, doc, { reason, declinedBy }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const who = declinedBy || job?.customerName || "The client";
+  await Promise.all(BR_CO_OWNERS.map(owner =>
+    insertStandaloneTask({
+      id: `DECLINE-${(doc?.id || Date.now())}-${Date.now()}-${owner}`,
+      title: `❌ Estimate declined — ${job?.customerName || who}`,
+      description: `${who} declined ${doc?.name || "the estimate"}${reason ? `: "${reason}"` : " (no reason given)."} Follow up if you'd like to.`,
+      assigned_to: owner,
+      date_assigned: today,
+      date_started: "", follow_up_date: "", completed_date: "",
+      status: "Pending", priority: "high",
+      job_id: job?.id || null, job_customer: job?.customerName || "", job_address: job?.address || "", job_type: job?.jobType || "",
+      created_by: declinedBy || "Client (online)",
+      created_at: new Date().toISOString(),
+    }).catch(e => console.error(e))
+  ));
+
+  pushToUsers(BR_CO_OWNERS, {
+    title: "❌ Estimate declined",
+    body: `${who} declined their estimate${reason ? `: ${reason}` : "."}`,
+    url: "/",
+    tag: "estimate-declined",
   });
 }
 function brFmtMoney(n) {
@@ -21301,6 +21331,10 @@ function PublicEstimateAcceptPage({ docId }) {
   const [saving, setSaving] = useState(false);
   const [clientPrintedName, setClientPrintedName] = useState("");
   const sigPad = useSignaturePad();
+  const [mode, setMode] = useState("accept"); // "accept" | "decline"
+  const [declineReason, setDeclineReason] = useState("");
+  const [declining, setDeclining] = useState(false);
+  const [declined, setDeclined] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -21377,6 +21411,21 @@ function PublicEstimateAcceptPage({ docId }) {
     setSaving(false);
   }
 
+  async function submitDecline() {
+    if (!doc) return;
+    setDeclining(true);
+    try {
+      await notifyOwnersOfDecline(job, doc, {
+        reason: declineReason.trim(),
+        declinedBy: clientPrintedName.trim() || job?.customerName || "",
+      });
+      setDeclined(true);
+    } catch (e) {
+      console.error(e);
+    }
+    setDeclining(false);
+  }
+
   if (loading) {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: BRAND.offWhite }}><Spinner msg="Loading…" /></div>;
   }
@@ -21413,76 +21462,121 @@ function PublicEstimateAcceptPage({ docId }) {
             </div>
             <div style={{ fontSize: 13, color: BRAND.navy, fontWeight: 700, marginTop: 14 }}>📞 (509) 903-5744</div>
           </div>
+        ) : declined ? (
+          <div style={{ background: BRAND.white, borderRadius: 16, padding: 28, boxShadow: "0 2px 12px rgba(29,76,146,0.1)", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>📨</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy, marginBottom: 6 }}>We've let the team know</div>
+            <div style={{ fontSize: 13, color: BRAND.muted, lineHeight: 1.5 }}>
+              You've declined this estimate. We won't move forward with the work unless you reach back out.
+            </div>
+            <div style={{ fontSize: 13, color: BRAND.navy, fontWeight: 700, marginTop: 14 }}>📞 (509) 903-5744</div>
+            <button style={{ ...S.btn("ghost"), marginTop: 16 }} onClick={() => { setDeclined(false); setMode("accept"); }}>Changed your mind? Accept instead</button>
+          </div>
         ) : (
           <div style={{ background: BRAND.white, borderRadius: 16, padding: 20, boxShadow: "0 2px 12px rgba(29,76,146,0.1)" }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, textAlign: "center", marginBottom: 4 }}>Review & Accept Your Estimate</div>
-            {job?.customerName && <div style={{ fontSize: 13, color: BRAND.muted, textAlign: "center", marginBottom: 4 }}>{job.customerName}</div>}
-            <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>3 quick steps below — takes about a minute</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, textAlign: "center", marginBottom: 4 }}>Your Estimate</div>
+            {job?.customerName && <div style={{ fontSize: 13, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>{job.customerName}</div>}
 
-            {/* Step 1 — Review */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ width: 22, height: 22, borderRadius: "50%", background: BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>1</span>
-              <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Review your estimate</span>
+            {/* Accept vs Decline */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              <button onClick={() => setMode("accept")} style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: `2px solid ${mode === "accept" ? BRAND.navy : BRAND.border}`, background: mode === "accept" ? BRAND.navy : BRAND.white, color: mode === "accept" ? "#fff" : BRAND.navy, fontWeight: 800, fontSize: 13.5, cursor: "pointer" }}>✓ Accept</button>
+              <button onClick={() => setMode("decline")} style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: `2px solid ${mode === "decline" ? "#DC2626" : BRAND.border}`, background: mode === "decline" ? "#DC2626" : BRAND.white, color: mode === "decline" ? "#fff" : "#DC2626", fontWeight: 800, fontSize: 13.5, cursor: "pointer" }}>✗ Decline</button>
             </div>
 
-            {doc?.url && (
-              <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
-            )}
-
-            {total && (
-              <div style={{ ...S.card, background: BRAND.navy, border: "none" }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, color: BRAND.gold, fontWeight: 700 }}>ESTIMATED TOTAL</span>
-                  <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>${total}</span>
+            {mode === "decline" ? (
+              <>
+                {doc?.url && (
+                  <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+                )}
+                {total && (
+                  <div style={{ ...S.card, background: BRAND.offWhite }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, color: BRAND.muted, fontWeight: 700 }}>ESTIMATED TOTAL</span>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy }}>${total}</span>
+                    </div>
+                  </div>
+                )}
+                <div style={S.card}>
+                  <label style={S.lbl}>Let us know why (optional)</label>
+                  <textarea style={{ ...S.input, minHeight: 80, resize: "vertical" }} placeholder="e.g. going with another contractor, price too high, timing isn't right…" value={declineReason} onChange={e => setDeclineReason(e.target.value)} />
                 </div>
-              </div>
+                <button style={{ ...S.btn("primary"), marginTop: 8, background: "#DC2626", opacity: declining ? 0.6 : 1 }} disabled={declining} onClick={submitDecline}>
+                  {declining ? "Submitting…" : "✗ Confirm Decline"}
+                </button>
+                <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
+                  Changed your mind? Just tap Accept above instead.
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: BRAND.muted, textAlign: "center", marginBottom: 14 }}>3 quick steps below — takes about a minute</div>
+
+                {/* Step 1 — Review */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>1</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Review your estimate</span>
+                </div>
+
+                {doc?.url && (
+                  <img src={doc.url} alt="Estimate" style={{ width: "100%", borderRadius: 10, border: `1px solid ${BRAND.border}`, marginBottom: 14 }} />
+                )}
+
+                {total && (
+                  <div style={{ ...S.card, background: BRAND.navy, border: "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, color: BRAND.gold, fontWeight: 700 }}>ESTIMATED TOTAL</span>
+                      <span style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>${total}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ ...S.card, background: "#FFF7ED", border: "1px solid #FDBA74" }}>
+                  <div style={{ fontSize: 12.5, color: "#7C2D12", lineHeight: 1.5 }}>
+                    This is an <strong>estimate</strong> — not a final price. Signing below authorizes S&H Services Spokane LLC to proceed with the work described. <strong>Costs can change if additional work is needed</strong> once work begins; you'll be told before any extra cost is incurred.
+                  </div>
+                </div>
+
+                {/* Step 2 — Name */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: clientPrintedName.trim() ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{clientPrintedName.trim() ? "✓" : "2"}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Type your name</span>
+                </div>
+                <div style={S.card}>
+                  <input style={S.input} placeholder="Your full name" value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
+                </div>
+
+                {/* Step 3 — Sign — the last thing before Accept & Sign */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: sigPad.hasSig ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{sigPad.hasSig ? "✓" : "3"}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Sign below with your finger</span>
+                </div>
+                <div style={S.card}>
+                  <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
+                    <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
+                  </div>
+                  <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear & try again</button>
+                </div>
+
+                <button
+                  style={{ ...S.btn("primary"), marginTop: 16, opacity: (sigPad.hasSig && clientPrintedName.trim() && !saving) ? 1 : 0.4 }}
+                  disabled={!sigPad.hasSig || !clientPrintedName.trim() || saving}
+                  onClick={submitAcceptance}
+                >
+                  {saving ? "Submitting…" : "✓ Accept & Sign Estimate"}
+                </button>
+                {(!sigPad.hasSig || !clientPrintedName.trim()) && (
+                  <div style={{ textAlign: "center", fontSize: 12, color: "#B45309", marginTop: 8, fontWeight: 600 }}>
+                    {!clientPrintedName.trim() && !sigPad.hasSig ? "Type your name and sign above to finish" :
+                     !clientPrintedName.trim() ? "Type your name above to finish" :
+                     "Sign above to finish"}
+                  </div>
+                )}
+
+                <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
+                  Questions before you sign? Call us at (509) 903-5744.
+                </div>
+              </>
             )}
-
-            <div style={{ ...S.card, background: "#FFF7ED", border: "1px solid #FDBA74" }}>
-              <div style={{ fontSize: 12.5, color: "#7C2D12", lineHeight: 1.5 }}>
-                This is an <strong>estimate</strong> — not a final price. Signing below authorizes S&H Services Spokane LLC to proceed with the work described. <strong>Costs can change if additional work is needed</strong> once work begins; you'll be told before any extra cost is incurred.
-              </div>
-            </div>
-
-            {/* Step 2 — Name */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
-              <span style={{ width: 22, height: 22, borderRadius: "50%", background: clientPrintedName.trim() ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{clientPrintedName.trim() ? "✓" : "2"}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Type your name</span>
-            </div>
-            <div style={S.card}>
-              <input style={S.input} placeholder={job?.customerName || "Your full name"} value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
-            </div>
-
-            {/* Step 3 — Sign */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 8px" }}>
-              <span style={{ width: 22, height: 22, borderRadius: "50%", background: sigPad.hasSig ? "#16A34A" : BRAND.navy, color: "#fff", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{sigPad.hasSig ? "✓" : "3"}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 800, color: BRAND.navy }}>Sign below with your finger</span>
-            </div>
-            <div style={S.card}>
-              <div ref={sigPad.wrapRef} style={{ background: "#F8FAFF", border: `2px solid ${sigPad.hasSig ? "#16A34A" : BRAND.navy}`, borderRadius: 10, overflow: "hidden", touchAction: "none", height: 180 }}>
-                <canvas ref={sigPad.canvasRef} style={{ display: "block", width: "100%", height: "100%", cursor: "crosshair" }} />
-              </div>
-              <button style={{ ...S.btn("ghost"), marginTop: 6 }} onClick={sigPad.clear}>Clear & try again</button>
-            </div>
-
-            <button
-              style={{ ...S.btn("primary"), marginTop: 16, opacity: (sigPad.hasSig && clientPrintedName.trim() && !saving) ? 1 : 0.4 }}
-              disabled={!sigPad.hasSig || !clientPrintedName.trim() || saving}
-              onClick={submitAcceptance}
-            >
-              {saving ? "Submitting…" : "✓ Accept & Sign Estimate"}
-            </button>
-            {(!sigPad.hasSig || !clientPrintedName.trim()) && (
-              <div style={{ textAlign: "center", fontSize: 12, color: "#B45309", marginTop: 8, fontWeight: 600 }}>
-                {!clientPrintedName.trim() && !sigPad.hasSig ? "Type your name and sign above to finish" :
-                 !clientPrintedName.trim() ? "Type your name above to finish" :
-                 "Sign above to finish"}
-              </div>
-            )}
-
-            <div style={{ textAlign: "center", fontSize: 11.5, color: BRAND.muted, marginTop: 12 }}>
-              Questions before you sign? Call us at (509) 903-5744.
-            </div>
           </div>
         )}
 
