@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-27a — New Job Detail section: Client Messages — two-way thread with the homeowner via the Client Portal, reading/writing the same job_messages table (no backend changes needed, RLS already allows it); portal now also pushes a notification to assigned crew (or the owners if unassigned) when a client messages in";
+const BUILD_STAMP = "2026-07-28a — Field Checklist (per-job SOP walkthrough for water/fire/mold/storm, timestamped + attributed, auto-advances jobs.workflow_stage) and Work Authorization send (mirrors the estimate email/text deep-link pattern — no backend provider, opens Mail/Messages pre-filled with the client portal signing link)";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -368,6 +368,8 @@ function rowToJob(r) {
     purchaseRequests: r.purchase_requests ? JSON.parse(r.purchase_requests) : [],
     lat: r.lat != null ? Number(r.lat) : null,
     lng: r.lng != null ? Number(r.lng) : null,
+    workflowStage: r.workflow_stage || "",
+    waterCategory: r.water_category || "",
   };
 }
 
@@ -422,11 +424,13 @@ function jobToRow(j) {
     job_tasks: JSON.stringify(j.jobTasks || []),
     cost_calc: JSON.stringify(j.costCalc || null),
     purchase_requests: JSON.stringify(j.purchaseRequests || []),
+    workflow_stage: j.workflowStage || "",
+    water_category: j.waterCategory || "",
   };
 }
 
 async function fetchJobs() {
-  const rows = await sbFetch("jobs?order=submitted_at.desc&select=id,customer_name,customer_phone,customer_cell_phone,customer_home_phone,customer_email,customer_company,job_type,address,apt_suite,scope,estimated_cost,priority,status,crew,scheduled_date,bid_date,start_date,completed_date,claim_number,adjuster_name,adjuster_phone,adjuster_email,property_pin,needs_permit,permit_obtained,permit_date,permit_photos,measurements,matterport_url,xactimate_url,external_links,is_estimate,submitted_by,submitted_at,receipts,job_notes,job_hours,change_orders,job_tasks,deposit_paid,deposit_paid_date,deposit_amount,final_paid,final_paid_date,final_amount,photo_names,cost_calc,lat,lng");
+  const rows = await sbFetch("jobs?order=submitted_at.desc&select=id,customer_name,customer_phone,customer_cell_phone,customer_home_phone,customer_email,customer_company,job_type,address,apt_suite,scope,estimated_cost,priority,status,crew,scheduled_date,bid_date,start_date,completed_date,claim_number,adjuster_name,adjuster_phone,adjuster_email,property_pin,needs_permit,permit_obtained,permit_date,permit_photos,measurements,matterport_url,xactimate_url,external_links,is_estimate,submitted_by,submitted_at,receipts,job_notes,job_hours,change_orders,job_tasks,deposit_paid,deposit_paid_date,deposit_amount,final_paid,final_paid_date,final_amount,photo_names,cost_calc,lat,lng,workflow_stage,water_category");
   return (rows || []).map(rowToJob);
 }
 
@@ -907,6 +911,329 @@ const STATUS_META = {
 };
 
 const RECEIPT_CATS = ["Materials", "Labor", "Equipment", "Fuel", "Subcontractor", "Dump/Disposal", "Other"];
+
+// ─── Workflow Stages ──────────────────────────────────────────────────────────
+// Mirrors the same 19-value list the S&H Client Portal uses for jobs.workflow_stage
+// (kept identical so the client's Dashboard progress display stays in sync with
+// whatever this app writes). "On hold" stages are handled separately — they're
+// not part of the forward-moving numbered flow, so auto-advance logic never
+// overwrites them.
+const WORKFLOW_STATUSES = [
+  "Lead / Intake", "Inspection Scheduled", "Inspection Complete",
+  "Authorization Not Prepared", "Ready to Send", "Authorization Sent",
+  "Authorization Viewed", "Authorization Signed", "Approved to Begin",
+  "Emergency Mitigation In Progress", "Monitoring / Daily Service",
+  "Awaiting Scope Approval", "Reconstruction Pending", "Final Inspection",
+  "Completed", "Closed / Archived", "Declined", "Expired", "Voided",
+];
+const WORKFLOW_ON_HOLD = ["Declined", "Expired", "Voided"];
+function workflowStageIndex(stage) { return WORKFLOW_STATUSES.indexOf(stage); }
+// Only ever moves a job's stage FORWARD, and never touches a job that's on
+// hold (Declined/Expired/Voided) — completing field-checklist sections
+// shouldn't resurrect a voided or declined job.
+function maybeAdvanceWorkflowStage(currentStage, targetStage) {
+  if (!targetStage) return null;
+  if (WORKFLOW_ON_HOLD.includes(currentStage)) return null;
+  const tgtIdx = workflowStageIndex(targetStage);
+  if (tgtIdx === -1) return null;
+  const curIdx = workflowStageIndex(currentStage);
+  if (curIdx === -1 || curIdx < tgtIdx) return targetStage;
+  return null;
+}
+
+// ─── Field Checklist / SOP Templates ──────────────────────────────────────────
+// Transcribed from S&H Services' Mitigation Workflows & Client Work Authorization
+// spec (sections 2.1 and 3-6). Each item gets a stable, permanent `key` — this
+// is what's stored in job_checklist_items, so wording can be edited here later
+// without orphaning saved progress. Sections with `advanceStage` set will bump
+// jobs.workflow_stage forward (see maybeAdvanceWorkflowStage) once every item
+// in that section is checked off. `isLast` marks the section whose completion
+// represents the crew considering their field work done.
+const CHECKLIST_SAFETY_SECTION = {
+  key: "safety", label: "Initial Safety Gate",
+  note: "Complete before entering an unsafe or unknown area. Applies to every job type.",
+  items: [
+    { key: "safety.1", label: "Confirm the site is safe to enter." },
+    { key: "safety.2", label: "Identify structural instability, electrical hazards, gas leaks, active fire, contaminated water, chemical exposure, sharp debris, falling hazards, and unsafe air quality." },
+    { key: "safety.3", label: "Determine whether utility shutoff or emergency services are required." },
+    { key: "safety.4", label: "Document restricted areas and required PPE." },
+    { key: "safety.5", label: "Do not proceed into an unsafe area until hazards are controlled." },
+  ],
+};
+
+const CHECKLIST_TEMPLATES = {
+  water: {
+    label: "Water Mitigation",
+    sections: [
+      CHECKLIST_SAFETY_SECTION,
+      {
+        key: "3.1", label: "Arrival & Emergency Assessment", advanceStage: "Emergency Mitigation In Progress",
+        items: [
+          { key: "water.3.1.1", label: "Confirm authorization to enter and identify the client or authorized representative." },
+          { key: "water.3.1.2", label: "Perform and document a site safety assessment." },
+          { key: "water.3.1.3", label: "Identify and stop or isolate the water source when within the company's authorized scope." },
+          { key: "water.3.1.4", label: "Photograph and video the source, affected rooms, contents, and pre-existing conditions." },
+          { key: "water.3.1.5", label: "Record date/time of discovery, estimated duration, and whether water migrated to other levels or concealed cavities." },
+          { key: "water.3.1.6", label: "Determine water category and document supporting observations." },
+          { key: "water.3.1.7", label: "Determine class of loss and affected square footage." },
+          { key: "water.3.1.8", label: "Create an initial moisture map using appropriate meters and thermal imaging." },
+          { key: "water.3.1.9", label: "Record unaffected comparison readings." },
+          { key: "water.3.1.10", label: "Identify materials that may require hazardous-material testing before disturbance." },
+          { key: "water.3.1.11", label: "Obtain signed work authorization or document the emergency exception." },
+        ],
+      },
+      {
+        key: "3.2", label: "Water Category Controls", categoryGated: true,
+        note: "Select the water category above to reveal the matching control item.",
+        items: [
+          { key: "water.3.2.cat1", categoryGate: "1", label: "Category 1: Document that the source was sanitary at the time of release and evaluate whether time or contact changed the category." },
+          { key: "water.3.2.cat2", categoryGate: "2", label: "Category 2: Use appropriate PPE, contamination controls, cleaning, and material-removal decisions." },
+          { key: "water.3.2.cat3", categoryGate: "3", label: "Category 3 or sewage: Establish controlled access, enhanced PPE, containment, negative pressure when appropriate, and removal of affected porous materials according to the approved protocol." },
+          { key: "water.3.2.change", label: "Document any category change caused by time, temperature, microbial amplification, or cross-contamination." },
+        ],
+      },
+      {
+        key: "3.3", label: "Extraction & Controlled Demolition",
+        items: [
+          { key: "water.3.3.1", label: "Extract standing water and record equipment type, start time, and approximate volume when available." },
+          { key: "water.3.3.2", label: "Protect unaffected finishes and contents." },
+          { key: "water.3.3.3", label: "Remove or manipulate carpet and pad only when authorized." },
+          { key: "water.3.3.4", label: "Remove unsalvageable porous materials and materials necessary to access wet cavities." },
+          { key: "water.3.3.5", label: "Photograph each area before, during, and after demolition." },
+          { key: "water.3.3.6", label: "Bag, transport, and dispose of debris in accordance with contamination controls." },
+          { key: "water.3.3.7", label: "Document material quantities and dimensions." },
+          { key: "water.3.3.8", label: "Do not remove materials requiring testing until the required clearance or direction is received." },
+        ],
+      },
+      {
+        key: "3.4", label: "Drying Plan & Equipment Setup",
+        items: [
+          { key: "water.3.4.1", label: "Establish drying goals for each material and area." },
+          { key: "water.3.4.2", label: "Calculate and document initial air-mover and dehumidification needs." },
+          { key: "water.3.4.3", label: "Install air movers with safe spacing and secure cords." },
+          { key: "water.3.4.4", label: "Install dehumidifiers and route drainage safely." },
+          { key: "water.3.4.5", label: "Install HEPA air filtration or containment when demolition, contamination, or particulate control requires it." },
+          { key: "water.3.4.6", label: "Use specialty cavity-drying systems only where appropriate and authorized." },
+          { key: "water.3.4.7", label: "Record equipment manufacturer, type, asset number, room, placement, start time, and meter reading." },
+          { key: "water.3.4.8", label: "Photograph the complete equipment setup." },
+          { key: "water.3.4.9", label: "Explain equipment operation and safety requirements to the client." },
+        ],
+      },
+      {
+        key: "3.5", label: "Daily Monitoring", advanceStage: "Monitoring / Daily Service",
+        items: [
+          { key: "water.3.5.1", label: "Record ambient temperature and relative humidity outside the affected area." },
+          { key: "water.3.5.2", label: "Record affected-area temperature, relative humidity, and vapor-pressure or grain calculations when used." },
+          { key: "water.3.5.3", label: "Take moisture readings at consistent mapped locations." },
+          { key: "water.3.5.4", label: "Record equipment operating status, hour-meter readings, filter condition, and drainage function." },
+          { key: "water.3.5.5", label: "Adjust equipment based on documented drying conditions." },
+          { key: "water.3.5.6", label: "Check for secondary damage, microbial growth, odor, condensation, or new migration." },
+          { key: "water.3.5.7", label: "Photograph meaningful changes." },
+          { key: "water.3.5.8", label: "Document client communication, access problems, and any equipment that was moved or unplugged." },
+          { key: "water.3.5.9", label: "Continue until documented dry standard is achieved or the client/insurer directs otherwise in writing." },
+        ],
+      },
+      {
+        key: "3.6", label: "Completion", advanceStage: "Reconstruction Pending", isLast: true,
+        items: [
+          { key: "water.3.6.1", label: "Verify drying goals using final readings and unaffected reference materials." },
+          { key: "water.3.6.2", label: "Complete final moisture map and equipment-removal log." },
+          { key: "water.3.6.3", label: "Photograph completed mitigation areas." },
+          { key: "water.3.6.4", label: "Remove equipment, cords, containment, and temporary protections." },
+          { key: "water.3.6.5", label: "Clean the work area and remove remaining debris." },
+          { key: "water.3.6.6", label: "Identify repairs or reconstruction still required." },
+          { key: "water.3.6.7", label: "Complete customer walkthrough and obtain completion acknowledgment." },
+          { key: "water.3.6.8", label: "Upload all records, readings, photos, authorizations, and invoices." },
+        ],
+      },
+    ],
+  },
+
+  fire: {
+    label: "Fire & Smoke Mitigation",
+    sections: [
+      CHECKLIST_SAFETY_SECTION,
+      {
+        key: "4.1", label: "Initial Assessment", advanceStage: "Emergency Mitigation In Progress",
+        items: [
+          { key: "fire.4.1.1", label: "Confirm the fire department or authority has released the property for entry." },
+          { key: "fire.4.1.2", label: "Assess structural, electrical, gas, water, respiratory, and falling-debris hazards." },
+          { key: "fire.4.1.3", label: "Document fire origin area if known, affected rooms, soot patterns, water damage, openings, and pre-existing conditions." },
+          { key: "fire.4.1.4", label: "Identify security, board-up, temporary roof, or stabilization needs." },
+          { key: "fire.4.1.5", label: "Determine whether an industrial hygienist, engineer, electrician, roofer, plumber, or other specialist is required." },
+          { key: "fire.4.1.6", label: "Obtain signed authorization before work begins except for a documented emergency action." },
+        ],
+      },
+      {
+        key: "4.2", label: "Emergency Stabilization",
+        items: [
+          { key: "fire.4.2.1", label: "Board and secure unsafe openings." },
+          { key: "fire.4.2.2", label: "Install temporary roof covering or weather protection." },
+          { key: "fire.4.2.3", label: "Extract firefighting water and begin structural drying." },
+          { key: "fire.4.2.4", label: "Stabilize or isolate unsafe components only within authorized capabilities." },
+          { key: "fire.4.2.5", label: "Establish controlled access and debris paths." },
+          { key: "fire.4.2.6", label: "Document all temporary measures." },
+        ],
+      },
+      {
+        key: "4.3", label: "Soot & Residue Evaluation",
+        items: [
+          { key: "fire.4.3.1", label: "Identify affected surfaces and likely residue type." },
+          { key: "fire.4.3.2", label: "Perform small cleaning tests before broad cleaning." },
+          { key: "fire.4.3.3", label: "Separate salvageable, questionable, and nonrestorable materials." },
+          { key: "fire.4.3.4", label: "Prevent cross-contamination by controlling movement, HVAC operation, and work zones." },
+          { key: "fire.4.3.5", label: "Use HEPA vacuuming and appropriate dry or wet cleaning methods." },
+          { key: "fire.4.3.6", label: "Document staining, etching, corrosion, heat damage, and odor conditions." },
+        ],
+      },
+      {
+        key: "4.4", label: "Contents & Inventory",
+        items: [
+          { key: "fire.4.4.1", label: "Photograph rooms before moving contents." },
+          { key: "fire.4.4.2", label: "Create itemized inventory with location and condition." },
+          { key: "fire.4.4.3", label: "Identify high-value, sentimental, hazardous, food, medicine, textile, electronic, and regulated items." },
+          { key: "fire.4.4.4", label: "Obtain approval before disposal." },
+          { key: "fire.4.4.5", label: "Pack, label, track, clean, relocate, or store contents as authorized." },
+          { key: "fire.4.4.6", label: "Maintain chain-of-custody records for removed contents." },
+        ],
+      },
+      {
+        key: "4.5", label: "Odor Control",
+        items: [
+          { key: "fire.4.5.1", label: "Remove odor reservoirs and debris first." },
+          { key: "fire.4.5.2", label: "Clean affected surfaces before applying deodorization treatments." },
+          { key: "fire.4.5.3", label: "Select deodorization methods appropriate to the material and occupancy." },
+          { key: "fire.4.5.4", label: "Obtain specific authorization for ozone, hydroxyl, thermal fogging, or other specialized treatments." },
+          { key: "fire.4.5.5", label: "Post warnings, restrict occupancy, and document treatment time and clearance conditions." },
+          { key: "fire.4.5.6", label: "Do not represent odor treatment as a substitute for required cleaning or material removal." },
+        ],
+      },
+      {
+        key: "4.6", label: "Completion", advanceStage: "Reconstruction Pending", isLast: true,
+        items: [
+          { key: "fire.4.6.1", label: "Confirm stabilization, cleaning, and authorized demolition are complete." },
+          { key: "fire.4.6.2", label: "Document remaining reconstruction and specialty-service needs." },
+          { key: "fire.4.6.3", label: "Complete final photos, inventory status, and client walkthrough." },
+          { key: "fire.4.6.4", label: "Remove equipment and temporary protections when no longer required." },
+          { key: "fire.4.6.5", label: "Upload reports, photos, authorizations, change orders, and invoices." },
+        ],
+      },
+    ],
+  },
+
+  mold: {
+    label: "Mold Remediation",
+    sections: [
+      CHECKLIST_SAFETY_SECTION,
+      {
+        key: "5.1", label: "Assessment & Protocol", advanceStage: "Emergency Mitigation In Progress",
+        items: [
+          { key: "mold.5.1.1", label: "Identify and correct or control the moisture source." },
+          { key: "mold.5.1.2", label: "Document visible growth, staining, odors, moisture readings, affected materials, and estimated area." },
+          { key: "mold.5.1.3", label: "Determine whether a third-party assessment or remediation protocol is required." },
+          { key: "mold.5.1.4", label: "Identify occupants with reported sensitivities without making medical conclusions." },
+          { key: "mold.5.1.5", label: "Determine containment level, pressure control, PPE, and decontamination needs." },
+          { key: "mold.5.1.6", label: "Identify materials requiring asbestos, lead, or other testing before disturbance." },
+          { key: "mold.5.1.7", label: "Obtain written authorization and required acknowledgments." },
+        ],
+      },
+      {
+        key: "5.2", label: "Containment & Engineering Controls",
+        items: [
+          { key: "mold.5.2.1", label: "Remove or protect contents before containment construction." },
+          { key: "mold.5.2.2", label: "Install critical barriers and floor protection." },
+          { key: "mold.5.2.3", label: "Create a zipper entry, airlock, or decontamination chamber as required." },
+          { key: "mold.5.2.4", label: "Install HEPA-filtered negative-air equipment and confirm pressure direction." },
+          { key: "mold.5.2.5", label: "Seal HVAC openings and penetrations within the work zone when appropriate." },
+          { key: "mold.5.2.6", label: "Post warning signs and restrict access." },
+          { key: "mold.5.2.7", label: "Document containment condition before disturbance." },
+        ],
+      },
+      {
+        key: "5.3", label: "Removal & Cleaning",
+        items: [
+          { key: "mold.5.3.1", label: "Mist or otherwise control dust where appropriate." },
+          { key: "mold.5.3.2", label: "Remove affected porous materials according to the authorized protocol." },
+          { key: "mold.5.3.3", label: "Bag or wrap debris before moving it through clean areas." },
+          { key: "mold.5.3.4", label: "HEPA vacuum surfaces and perform detailed damp wiping or approved cleaning." },
+          { key: "mold.5.3.5", label: "Clean structural materials rather than relying solely on coatings." },
+          { key: "mold.5.3.6", label: "Sand or mechanically clean framing only when required and safely controlled." },
+          { key: "mold.5.3.7", label: "Apply antimicrobial or encapsulant only when appropriate, authorized, and after cleaning." },
+          { key: "mold.5.3.8", label: "Maintain negative pressure throughout disturbance and cleaning." },
+        ],
+      },
+      {
+        key: "5.4", label: "Drying & Verification",
+        items: [
+          { key: "mold.5.4.1", label: "Dry remaining structural materials to the documented goal." },
+          { key: "mold.5.4.2", label: "Record daily environmental and moisture readings." },
+          { key: "mold.5.4.3", label: "Perform final HEPA cleaning after settlement time when required." },
+          { key: "mold.5.4.4", label: "Complete visual verification and document that work areas are free of visible dust and debris." },
+          { key: "mold.5.4.5", label: "Coordinate third-party post-remediation verification when included or required." },
+          { key: "mold.5.4.6", label: "Do not remove containment until required verification is complete." },
+        ],
+      },
+      {
+        key: "5.5", label: "Completion", advanceStage: "Reconstruction Pending", isLast: true,
+        items: [
+          { key: "mold.5.5.1", label: "Remove containment in a controlled manner." },
+          { key: "mold.5.5.2", label: "Clean adjacent paths and equipment." },
+          { key: "mold.5.5.3", label: "Document final conditions and remaining repair needs." },
+          { key: "mold.5.5.4", label: "Complete customer walkthrough and provide limitations concerning concealed areas and naturally occurring spores." },
+          { key: "mold.5.5.5", label: "Upload protocol, testing, readings, photos, waste records, and completion documents." },
+        ],
+      },
+    ],
+  },
+
+  storm: {
+    label: "Storm Damage",
+    sections: [
+      CHECKLIST_SAFETY_SECTION,
+      {
+        key: "6.1", label: "Initial Response", advanceStage: "Emergency Mitigation In Progress",
+        items: [
+          { key: "storm.6.1.1", label: "Confirm weather conditions permit safe access." },
+          { key: "storm.6.1.2", label: "Assess roof, tree, electrical, structural, glass, water, and falling-object hazards." },
+          { key: "storm.6.1.3", label: "Photograph exterior elevations, roof conditions when safely accessible, interior damage, debris, and pre-existing conditions." },
+          { key: "storm.6.1.4", label: "Identify immediate openings and active water entry." },
+          { key: "storm.6.1.5", label: "Determine need for emergency board-up, tarp, temporary fencing, tree service, engineer, electrician, or utility support." },
+          { key: "storm.6.1.6", label: "Obtain authorization for emergency stabilization." },
+        ],
+      },
+      {
+        key: "6.2", label: "Temporary Protection",
+        items: [
+          { key: "storm.6.2.1", label: "Install roof tarp or temporary weatherproofing using safe access and fall protection." },
+          { key: "storm.6.2.2", label: "Board broken windows, doors, and openings." },
+          { key: "storm.6.2.3", label: "Protect interiors and contents from continuing intrusion." },
+          { key: "storm.6.2.4", label: "Extract water and begin drying when needed." },
+          { key: "storm.6.2.5", label: "Coordinate safe debris or tree removal." },
+          { key: "storm.6.2.6", label: "Document materials, labor, dimensions, and completed temporary measures." },
+        ],
+      },
+      {
+        key: "6.3", label: "Monitoring & Transition", advanceStage: "Reconstruction Pending", isLast: true,
+        items: [
+          { key: "storm.6.3.1", label: "Inspect temporary protection after severe weather or reported leakage." },
+          { key: "storm.6.3.2", label: "Document any continued intrusion or changed conditions." },
+          { key: "storm.6.3.3", label: "Prepare repair scope or handoff to reconstruction." },
+          { key: "storm.6.3.4", label: "Obtain separate approval for permanent repairs or expanded work." },
+          { key: "storm.6.3.5", label: "Complete final emergency-service walkthrough and records." },
+        ],
+      },
+    ],
+  },
+};
+
+// Resolves the actual list of items that count toward "section complete" for
+// a given job — mainly matters for the water-category-gated section, where
+// only the matching category bullet (plus the always-shown one) applies.
+function resolveSectionItems(section, job) {
+  if (!section.categoryGated) return section.items;
+  const cat = job.waterCategory;
+  return section.items.filter(it => !it.categoryGate || it.categoryGate === cat);
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtDate(iso) { if (!iso) return "—"; return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
@@ -1980,6 +2307,20 @@ const TabIcons = {
     <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>
       <path d="M8 9h8M8 12h5"/>
+    </svg>
+  ),
+  fieldChecklist: (
+    <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
+      <path d="M9 3.5V3a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v.5"/>
+      <path d="M8.5 10.5l1.5 1.5 3-3.5M8.5 16.5l1.5 1.5 3-3.5"/>
+    </svg>
+  ),
+  workAuth: (
+    <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 3h7l4 4v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
+      <path d="M14 3v4h4"/>
+      <path d="M8.5 17.5c1-2.5 2.5-4 4-2.5s2.5-4 4-2.5"/>
     </svg>
   ),
 };
@@ -5980,6 +6321,229 @@ function ClientMessages({ job, user }) {
       >
         {sending ? "Sending…" : "Send Reply"}
       </button>
+    </div>
+  );
+}
+
+// ─── Field Checklist ──────────────────────────────────────────────────────────
+// Walks the assigned crew through the S&H mitigation SOP for this job's loss
+// type (water/fire/mold/storm), one section at a time. Progress is stored in
+// job_checklist_items (one row per checked item, keyed to job_id + item_key)
+// so nothing is lost if someone closes the app mid-job. Completing certain
+// sections automatically advances jobs.workflow_stage forward — never
+// backward, and never for a job that's Declined/Expired/Voided — so the
+// client's Portal Dashboard reflects real field progress without anyone
+// having to remember to update a status dropdown.
+function FieldChecklistSection({ job, user, onUpdate }) {
+  const template = CHECKLIST_TEMPLATES[job.jobType];
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [openSection, setOpenSection] = useState(null);
+  const [savingKey, setSavingKey] = useState(null);
+  const [toast, setToast] = useState(null);
+  function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); }
+
+  async function load() {
+    setLoading(true);
+    try {
+      const rows = await sbFetch(`job_checklist_items?job_id=eq.${encodeURIComponent(job.id)}`);
+      setItems(rows || []);
+    } catch { setItems([]); }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [job.id]);
+
+  const byKey = useMemo(() => {
+    const m = {};
+    items.forEach(r => { m[r.item_key] = r; });
+    return m;
+  }, [items]);
+
+  // Default to opening the first section that isn't fully complete yet, so
+  // returning crew land right where they left off instead of at the top.
+  useEffect(() => {
+    if (!template || openSection !== null) return;
+    const firstIncomplete = template.sections.find(sec => {
+      const secItems = resolveSectionItems(sec, job);
+      return secItems.length === 0 || !secItems.every(it => byKey[it.key]?.completed);
+    });
+    setOpenSection(firstIncomplete ? firstIncomplete.key : template.sections[0].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, loading]);
+
+  if (!template) {
+    return (
+      <div style={{ textAlign: "center", color: BRAND.muted, fontSize: 13, padding: "16px 4px" }}>
+        Field checklists are currently defined for Water, Fire, Mold, and Storm jobs.
+        {job.jobType ? ` "${JOB_TYPES.find(t => t.value === job.jobType)?.label || job.jobType}" doesn't have an SOP checklist yet.` : ""}
+      </div>
+    );
+  }
+
+  async function setWaterCategory(cat) {
+    await onUpdate({ ...job, waterCategory: cat }, false);
+  }
+
+  async function toggleItem(section, item, checked) {
+    const key = item.key;
+    setSavingKey(key);
+    const existing = byKey[key];
+    const patch = checked
+      ? { completed: true, completed_by: user.name, completed_at: new Date().toISOString() }
+      : { completed: false, completed_by: null, completed_at: null };
+    try {
+      let savedRow;
+      if (existing) {
+        await sbFetch(`job_checklist_items?id=eq.${existing.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+        savedRow = { ...existing, ...patch };
+      } else {
+        const inserted = await sbFetch("job_checklist_items", {
+          method: "POST",
+          body: JSON.stringify({ job_id: job.id, item_key: key, ...patch }),
+        });
+        savedRow = (inserted && inserted[0]) || { job_id: job.id, item_key: key, ...patch };
+      }
+      setItems(prev => {
+        const next = prev.filter(r => r.item_key !== key);
+        next.push(savedRow);
+        return next;
+      });
+
+      // Check whether this completion finished the whole section, and if
+      // so, whether that section is configured to advance the job stage.
+      if (checked && section.advanceStage) {
+        const secItems = resolveSectionItems(section, job);
+        const nowDone = secItems.every(it => it.key === key ? true : byKey[it.key]?.completed);
+        if (nowDone) {
+          const next = maybeAdvanceWorkflowStage(job.workflowStage, section.advanceStage);
+          if (next) {
+            await onUpdate({ ...job, workflowStage: next }, false);
+            showToast(`Job stage advanced: ${next}`);
+          }
+        }
+      }
+    } catch (e) {
+      showToast("Couldn't save — check your connection", false);
+    }
+    setSavingKey(null);
+  }
+
+  const safetySection = template.sections[0];
+  const safetyItems = resolveSectionItems(safetySection, job);
+  const safetyDone = safetyItems.every(it => byKey[it.key]?.completed);
+
+  if (loading) return <Spinner msg="Loading checklist…" />;
+
+  return (
+    <div>
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+      <div style={{ fontSize: 12.5, color: BRAND.muted, marginBottom: 12, lineHeight: 1.4 }}>
+        {template.label} SOP — tap a section to check off steps as the crew completes them. Each check is timestamped and attributed to whoever is signed in.
+      </div>
+
+      {template.sections.map((section, sIdx) => {
+        const secItems = resolveSectionItems(section, job);
+        const doneCount = secItems.filter(it => byKey[it.key]?.completed).length;
+        const isComplete = secItems.length > 0 && doneCount === secItems.length;
+        const locked = sIdx > 0 && !safetyDone;
+        const open = openSection === section.key;
+
+        return (
+          <div key={section.key} style={{
+            borderRadius: 12, border: `1.5px solid ${open ? BRAND.navy : BRAND.border}`,
+            background: BRAND.white, overflow: "hidden", marginBottom: 8,
+            opacity: locked ? 0.55 : 1,
+          }}>
+            <button
+              onClick={() => !locked && setOpenSection(open ? null : section.key)}
+              disabled={locked}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: open ? `${BRAND.navy}0D` : BRAND.white, border: "none", cursor: locked ? "default" : "pointer",
+                padding: "12px 14px", textAlign: "left", fontFamily: "inherit",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                <span style={{
+                  width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: isComplete ? "#16A34A" : locked ? BRAND.border : `${BRAND.navy}18`,
+                  color: isComplete ? "#fff" : BRAND.navy, fontSize: 12, fontWeight: 800,
+                }}>
+                  {isComplete ? "✓" : locked ? "🔒" : sIdx === 0 ? "🛡" : sIdx}
+                </span>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: locked ? BRAND.muted : (open ? BRAND.navy : BRAND.text) }}>{section.label}</span>
+              </div>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: isComplete ? "#16A34A" : BRAND.muted, flexShrink: 0, marginLeft: 8 }}>
+                {secItems.length > 0 ? `${doneCount}/${secItems.length}` : "—"}
+              </span>
+            </button>
+
+            {open && !locked && (
+              <div style={{ padding: "6px 14px 14px", borderTop: `1px solid ${BRAND.border}` }}>
+                {section.note && (
+                  <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 10, fontStyle: "italic" }}>{section.note}</div>
+                )}
+
+                {section.categoryGated && (
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={S.lbl}>Water Category</label>
+                    <div style={S.pills}>
+                      {["1", "2", "3"].map(cat => (
+                        <button key={cat}
+                          style={S.pill(job.waterCategory === cat, "#2563EB")}
+                          onClick={() => setWaterCategory(cat)}
+                        >
+                          Category {cat}{cat === "3" ? " / Sewage" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {secItems.length === 0 && (
+                    <div style={{ fontSize: 12.5, color: BRAND.muted, padding: "6px 0" }}>Select a water category above to see the matching item.</div>
+                  )}
+                  {secItems.map(it => {
+                    const row = byKey[it.key];
+                    const done = !!row?.completed;
+                    const saving = savingKey === it.key;
+                    return (
+                      <label key={it.key} style={{
+                        display: "flex", alignItems: "flex-start", gap: 10, cursor: saving ? "default" : "pointer",
+                        padding: "9px 10px", borderRadius: 9,
+                        border: `1.5px solid ${done ? "#16A34A" : BRAND.border}`,
+                        background: done ? "#F0FDF4" : BRAND.white,
+                      }}>
+                        <div
+                          onClick={() => !saving && toggleItem(section, it, !done)}
+                          style={{
+                            width: 21, height: 21, borderRadius: 6, flexShrink: 0, marginTop: 1,
+                            border: `2px solid ${done ? "#16A34A" : BRAND.border}`,
+                            background: done ? "#16A34A" : "transparent",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            opacity: saving ? 0.5 : 1,
+                          }}
+                        >
+                          {done && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, color: done ? "#15803D" : BRAND.text, lineHeight: 1.4 }}>{it.label}</div>
+                          {done && row?.completed_by && (
+                            <div style={{ fontSize: 10.5, color: BRAND.muted, marginTop: 3 }}>
+                              ✓ {row.completed_by} · {fmtTs(row.completed_at)}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -10090,6 +10654,12 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs,
             </div>
           </AccordionItem>
 
+          <AccordionItem id="workAuth" title="Work Authorization" icon={TabIcons.workAuth} accentColor="#0369A1">
+            <div style={{ paddingTop: 8 }}>
+              <WorkAuthorizationSection job={job} user={user} onUpdate={onUpdate} />
+            </div>
+          </AccordionItem>
+
           <AccordionItem id="permit" title="Permit" icon={TabIcons.permit} accentColor="#B45309" badge={job.needsPermit ? (job.permitObtained ? "✓" : "!") : null}>
             <div style={{ paddingTop: 8 }}>
               <PermitPhotos job={job} onUpdate={onUpdate} />
@@ -10232,6 +10802,12 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs,
                   {saving ? "Saving…" : "Save All Changes"}
                 </button>
               </div>
+            </div>
+          </AccordionItem>
+
+          <AccordionItem id="fieldChecklist" title="Field Checklist" icon={TabIcons.fieldChecklist} accentColor="#B7472A">
+            <div style={{ paddingTop: 8 }}>
+              <FieldChecklistSection job={job} user={user} onUpdate={onUpdate} />
             </div>
           </AccordionItem>
 
@@ -13069,15 +13645,16 @@ function DocsTab({ user, jobs, isDesktopView }) {
 // ── ShareModal — top-level to prevent remount on keystroke ────────────────────
 function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
   const isEmail = type === "email";
-  const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+  const isSignFlow = (docType === "estimate" || docType === "workauth") && !doc.name?.startsWith("[Client Accepted]");
+  const signWord = docType === "workauth" ? "reviews and signs the Work Authorization" : "reviews the estimate, and signs online";
   const steps = isEmail
-    ? ["Enter the recipient's email", "Tap Send — your email app opens pre-filled with a secure link", isSignFlow ? "The client taps the link, reviews the estimate, and signs online" : "The client taps the link to view or download it", "Review and send the email"]
-    : ["Enter the recipient's phone number", "Tap Send — your Messages app opens pre-filled with a secure link", isSignFlow ? "The client taps the link, reviews the estimate, and signs online" : "The client taps the link to view or download it", "Review and send the text"];
+    ? ["Enter the recipient's email", "Tap Send — your email app opens pre-filled with a secure link", isSignFlow ? `The client taps the link, ${signWord}` : "The client taps the link to view or download it", "Review and send the email"]
+    : ["Enter the recipient's phone number", "Tap Send — your Messages app opens pre-filled with a secure link", isSignFlow ? `The client taps the link, ${signWord}` : "The client taps the link to view or download it", "Review and send the text"];
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: BRAND.white, borderRadius: 14, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: BRAND.navy, marginBottom: 4 }}>
-          {isEmail ? "✉️ Email" : "💬 Text"} {docType === "contract" ? "Contract" : docType === "estimate" ? "Estimate" : "Invoice"}
+          {isEmail ? "✉️ Email" : "💬 Text"} {docType === "contract" ? "Contract" : docType === "estimate" ? "Estimate" : docType === "workauth" ? "Work Authorization" : "Invoice"}
         </div>
         <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 14 }}>{doc.name}</div>
         <div style={{ background: "#EFF6FF", borderRadius: 9, padding: "12px 14px", marginBottom: 16, border: "1px solid #BFDBFE" }}>
@@ -13101,6 +13678,133 @@ function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
             onClick={() => onSend(doc)} disabled={!value}>
             {isEmail ? "✉️ Prepare Email" : "💬 Prepare Text"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Work Authorization ───────────────────────────────────────────────────────
+// Sends the client's Work Authorization signing link (created in the S&H
+// Client Portal's Admin panel — this app doesn't build that record, only
+// sends it). Mirrors the exact same client-side mailto:/sms: deep-link
+// pattern already used for estimates and change orders: there is no backend
+// email/SMS provider (no Twilio/SendGrid/etc.) — tapping Send just opens the
+// device's own Mail or Messages app, pre-filled, for the person to review
+// and actually send. Reuses the same ShareModal component estimates use.
+function WorkAuthorizationSection({ job, user, onUpdate }) {
+  const [wa, setWa] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [emailModal, setEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [smsModal, setSmsModal] = useState(false);
+  const [smsTo, setSmsTo] = useState("");
+  const [toast, setToast] = useState(null);
+  function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); }
+
+  async function load() {
+    setLoading(true);
+    try {
+      const rows = await sbFetch(`work_authorizations?job_id=eq.${encodeURIComponent(job.id)}&order=created_at.desc&limit=1`);
+      const row = (rows && rows[0]) || null;
+      setWa(row);
+      setEmailTo(row?.client_email || job.customerEmail || "");
+      setSmsTo(job.customerCellPhone || job.customerPhone || "");
+    } catch { setWa(null); }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [job.id]);
+
+  const authLink = wa ? `https://sh-client-portal.vercel.app/#authorize=${wa.auth_code}` : "";
+  const lossTypeLabel = JOB_TYPES.find(t => t.value === job.jobType)?.label || job.jobType || "damage";
+  const firstName = (job.customerName || "").split(" ")[0] || "there";
+
+  // Marks the authorization (and the job's own workflow_stage) as sent —
+  // never regresses an authorization that's already further along
+  // (viewed/signed) back to "sent" if it was tapped again.
+  async function markSent(via) {
+    if (!wa) return;
+    try {
+      const priorVia = (wa.sent_via || "").split(",").map(s => s.trim()).filter(Boolean);
+      const nextVia = priorVia.includes(via) ? priorVia : [...priorVia, via];
+      const patch = { sent_via: nextVia.join(","), sent_at: wa.sent_at || new Date().toISOString() };
+      const advancedStatuses = ["viewed", "signed"];
+      if (!advancedStatuses.includes((wa.status || "").toLowerCase())) patch.status = "sent";
+      await sbFetch(`work_authorizations?id=eq.${wa.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setWa(prev => ({ ...prev, ...patch }));
+      const nextStage = maybeAdvanceWorkflowStage(job.workflowStage, "Authorization Sent");
+      if (nextStage) await onUpdate({ ...job, workflowStage: nextStage }, false);
+    } catch {}
+  }
+
+  async function sendEmail() {
+    if (!emailTo || !wa) return;
+    try {
+      const subject = encodeURIComponent(`Work Authorization — ${job.customerName || "Your Project"} — S&H Services Spokane`);
+      const body = encodeURIComponent(
+        `Hello ${firstName},\n\nThank you for choosing S & H Services Spokane.\n\nBefore our team begins emergency ${lossTypeLabel.toLowerCase()} damage services, please review and electronically sign the Work Authorization for your property using the secure link below.\n\nProject: ${job.id}\nProperty: ${job.address || ""}\nProject Type: ${lossTypeLabel}\nAssigned Project Manager: ${user.name}\nTelephone: (509) 903-5744\n\n${authLink}\n\nThe authorization explains the initial work requested, access permissions, payment responsibility, insurance-related information, and other important terms. After signing, you will receive a completed copy for your records and our team will be notified.\n\nPlease contact us before signing if any information is incorrect or you have questions.\n\nS & H Services Spokane\nSimple | Honest\nRestoration Done Right!`
+      );
+      window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
+      await markSent("email");
+      setEmailModal(false);
+      showToast("Email ready — review and hit send!");
+    } catch { showToast("Could not open email", false); }
+  }
+
+  async function sendText() {
+    if (!smsTo || !wa) return;
+    try {
+      const msg = encodeURIComponent(
+        `Hi ${firstName}, this is S&H Services Spokane. Please review and sign your Work Authorization here:\n${authLink}\n\nQuestions? Call (509) 903-5744.`
+      );
+      const phone = smsTo.replace(/\D/g, "");
+      const smsUrl = /iphone|ipad|ipod/i.test(navigator.userAgent) ? `sms:${phone}&body=${msg}` : `sms:${phone}?body=${msg}`;
+      window.open(smsUrl);
+      await markSent("sms");
+      setSmsModal(false);
+      showToast("Messages app opened!");
+    } catch { showToast("Could not open Messages", false); }
+  }
+
+  if (loading) return <Spinner msg="Loading…" />;
+
+  if (!wa) {
+    return (
+      <div style={{ textAlign: "center", color: BRAND.muted, fontSize: 13, padding: "16px 4px", lineHeight: 1.5 }}>
+        No Work Authorization has been created for this job yet. Create one from the Client Portal Admin panel — once it exists, you'll be able to email or text the signing link right from here.
+      </div>
+    );
+  }
+
+  const statusMeta = {
+    signed: { label: "Signed", bg: "#F0FDF4", text: "#15803D", border: "#BBF7D0" },
+    viewed: { label: "Viewed", bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE" },
+    sent: { label: "Sent", bg: "#FFF7ED", text: "#B45309", border: "#FDE68A" },
+  }[(wa.status || "").toLowerCase()] || { label: wa.status || "Not Sent", bg: "#F1F5F9", text: "#475569", border: "#CBD5E1" };
+
+  return (
+    <div>
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+      {emailModal && (
+        <ShareModal type="email" doc={{ name: "Work Authorization" }} docType="workauth" value={emailTo} setValue={setEmailTo} onSend={sendEmail} onClose={() => setEmailModal(false)} />
+      )}
+      {smsModal && (
+        <ShareModal type="sms" doc={{ name: "Work Authorization" }} docType="workauth" value={smsTo} setValue={setSmsTo} onSend={sendText} onClose={() => setSmsModal(false)} />
+      )}
+
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy }}>Work Authorization</div>
+          <span style={S.badge(statusMeta.bg, statusMeta.text, statusMeta.border)}>{statusMeta.label}</span>
+        </div>
+        {wa.client_email && <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 3 }}>✉️ {wa.client_email}</div>}
+        {wa.sent_at && <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 3 }}>Sent {fmtTs(wa.sent_at)}{wa.sent_via ? ` via ${wa.sent_via}` : ""}</div>}
+        {wa.viewed_at && <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 3 }}>Viewed {fmtTs(wa.viewed_at)}</div>}
+        {wa.client_signed_at && <div style={{ fontSize: 11.5, color: "#15803D", marginBottom: 3 }}>Signed {fmtTs(wa.client_signed_at)} by {wa.client_signature_name || "client"}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <button onClick={() => setEmailModal(true)} style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: "#0369A1", color: "#fff", cursor: "pointer" }}>✉️ Email</button>
+          <button onClick={() => setSmsModal(true)} style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: "#16A34A", color: "#fff", cursor: "pointer" }}>💬 Text</button>
         </div>
       </div>
     </div>
