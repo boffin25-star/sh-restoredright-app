@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-28a — Field Checklist (per-job SOP walkthrough for water/fire/mold/storm, timestamped + attributed, auto-advances jobs.workflow_stage) and Work Authorization send (mirrors the estimate email/text deep-link pattern — no backend provider, opens Mail/Messages pre-filled with the client portal signing link)";
+const BUILD_STAMP = "2026-07-28c — Added Project Lead (single-person, distinct from crew) to Add Job + Job Detail Scheduling, selectable from the team roster; Estimates now auto-create a job (isEstimate: true) when generated for a brand-new prospect with no existing job picked, so it shows up in the Jobs view under Estimate instead of only existing as a document";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -370,6 +370,7 @@ function rowToJob(r) {
     lng: r.lng != null ? Number(r.lng) : null,
     workflowStage: r.workflow_stage || "",
     waterCategory: r.water_category || "",
+    projectLead: r.project_lead || "",
   };
 }
 
@@ -426,11 +427,12 @@ function jobToRow(j) {
     purchase_requests: JSON.stringify(j.purchaseRequests || []),
     workflow_stage: j.workflowStage || "",
     water_category: j.waterCategory || "",
+    project_lead: j.projectLead || "",
   };
 }
 
 async function fetchJobs() {
-  const rows = await sbFetch("jobs?order=submitted_at.desc&select=id,customer_name,customer_phone,customer_cell_phone,customer_home_phone,customer_email,customer_company,job_type,address,apt_suite,scope,estimated_cost,priority,status,crew,scheduled_date,bid_date,start_date,completed_date,claim_number,adjuster_name,adjuster_phone,adjuster_email,property_pin,needs_permit,permit_obtained,permit_date,permit_photos,measurements,matterport_url,xactimate_url,external_links,is_estimate,submitted_by,submitted_at,receipts,job_notes,job_hours,change_orders,job_tasks,deposit_paid,deposit_paid_date,deposit_amount,final_paid,final_paid_date,final_amount,photo_names,cost_calc,lat,lng,workflow_stage,water_category");
+  const rows = await sbFetch("jobs?order=submitted_at.desc&select=id,customer_name,customer_phone,customer_cell_phone,customer_home_phone,customer_email,customer_company,job_type,address,apt_suite,scope,estimated_cost,priority,status,crew,scheduled_date,bid_date,start_date,completed_date,claim_number,adjuster_name,adjuster_phone,adjuster_email,property_pin,needs_permit,permit_obtained,permit_date,permit_photos,measurements,matterport_url,xactimate_url,external_links,is_estimate,submitted_by,submitted_at,receipts,job_notes,job_hours,change_orders,job_tasks,deposit_paid,deposit_paid_date,deposit_amount,final_paid,final_paid_date,final_amount,photo_names,cost_calc,lat,lng,workflow_stage,water_category,project_lead");
   return (rows || []).map(rowToJob);
 }
 
@@ -965,7 +967,6 @@ const CHECKLIST_TEMPLATES = {
   water: {
     label: "Water Mitigation",
     sections: [
-      CHECKLIST_SAFETY_SECTION,
       {
         key: "3.1", label: "Arrival & Emergency Assessment", advanceStage: "Emergency Mitigation In Progress",
         items: [
@@ -1052,7 +1053,6 @@ const CHECKLIST_TEMPLATES = {
   fire: {
     label: "Fire & Smoke Mitigation",
     sections: [
-      CHECKLIST_SAFETY_SECTION,
       {
         key: "4.1", label: "Initial Assessment", advanceStage: "Emergency Mitigation In Progress",
         items: [
@@ -1124,7 +1124,6 @@ const CHECKLIST_TEMPLATES = {
   mold: {
     label: "Mold Remediation",
     sections: [
-      CHECKLIST_SAFETY_SECTION,
       {
         key: "5.1", label: "Assessment & Protocol", advanceStage: "Emergency Mitigation In Progress",
         items: [
@@ -1189,7 +1188,6 @@ const CHECKLIST_TEMPLATES = {
   storm: {
     label: "Storm Damage",
     sections: [
-      CHECKLIST_SAFETY_SECTION,
       {
         key: "6.1", label: "Initial Response", advanceStage: "Emergency Mitigation In Progress",
         items: [
@@ -1224,6 +1222,62 @@ const CHECKLIST_TEMPLATES = {
       },
     ],
   },
+
+  // DRAFT — generic reconstruction/rebuild steps, NOT sourced from the SOP
+  // doc (the source spec only covers water/fire/mold/storm mitigation).
+  // Meant as a starting skeleton to edit — replace wording, add/remove
+  // items, and adjust to match how S&H actually runs its rebuilds before
+  // treating this as an official SOP.
+  rebuild: {
+    label: "Rebuild / Reconstruction",
+    sections: [
+      {
+        key: "rb.1", label: "Scope & Scheduling",
+        items: [
+          { key: "rebuild.1.1", label: "Finalize repair/reconstruction scope with the client (and insurance, if applicable)." },
+          { key: "rebuild.1.2", label: "Obtain a signed change order or supplemental work authorization for the reconstruction scope." },
+          { key: "rebuild.1.3", label: "Schedule subcontractors and order materials." },
+          { key: "rebuild.1.4", label: "Confirm permit requirements and submit the application if one is needed." },
+        ],
+      },
+      {
+        key: "rb.2", label: "Permits & Pre-Construction",
+        items: [
+          { key: "rebuild.2.1", label: "Confirm the permit is obtained before starting any work that requires one (see the Permit tab)." },
+          { key: "rebuild.2.2", label: "Verify utility locates are complete if excavation or framing affects utilities." },
+          { key: "rebuild.2.3", label: "Photograph the pre-construction condition of each work area." },
+        ],
+      },
+      {
+        key: "rb.3", label: "Rough-In & Framing",
+        items: [
+          { key: "rebuild.3.1", label: "Complete framing repairs per the approved scope." },
+          { key: "rebuild.3.2", label: "Complete rough electrical, plumbing, and HVAC as applicable." },
+          { key: "rebuild.3.3", label: "Schedule and pass rough-in inspections before closing walls." },
+          { key: "rebuild.3.4", label: "Photograph completed rough-in before drywall." },
+        ],
+      },
+      {
+        key: "rb.4", label: "Drywall, Paint & Finishes",
+        items: [
+          { key: "rebuild.4.1", label: "Complete drywall, taping, and texture." },
+          { key: "rebuild.4.2", label: "Complete priming and paint." },
+          { key: "rebuild.4.3", label: "Install flooring, trim, and fixtures per scope." },
+          { key: "rebuild.4.4", label: "Photograph completed finish work." },
+        ],
+      },
+      {
+        key: "rb.5", label: "Final Walkthrough & Closeout", advanceStage: "Final Inspection", isLast: true,
+        items: [
+          { key: "rebuild.5.1", label: "Complete final inspection or certificate of occupancy if required." },
+          { key: "rebuild.5.2", label: "Conduct a final walkthrough with the client and document any punch list." },
+          { key: "rebuild.5.3", label: "Complete punch list items." },
+          { key: "rebuild.5.4", label: "Obtain client sign-off / completion acknowledgment." },
+          { key: "rebuild.5.5", label: "Upload all permits, inspection results, photos, warranties, and the final invoice." },
+        ],
+      },
+    ],
+  },
 };
 
 // Resolves the actual list of items that count toward "section complete" for
@@ -1233,6 +1287,35 @@ function resolveSectionItems(section, job) {
   if (!section.categoryGated) return section.items;
   const cat = job.waterCategory;
   return section.items.filter(it => !it.categoryGate || it.categoryGate === cat);
+}
+
+// Display metadata for checklist types that DO have an SOP defined
+// (matches CHECKLIST_TEMPLATES keys).
+const CHECKLIST_TYPE_META = {
+  water: { label: "Water Mitigation", icon: "💧", color: "#2563EB" },
+  fire: { label: "Fire & Smoke Mitigation", icon: "🔥", color: "#DC2626" },
+  mold: { label: "Mold Remediation", icon: "🍃", color: "#16A34A" },
+  storm: { label: "Storm Damage", icon: "⛈️", color: "#7C3AED" },
+  rebuild: { label: "Rebuild / Reconstruction", icon: "🔨", color: "#B45309" },
+};
+// Job types that exist elsewhere in the app (JOB_TYPES) but still have no
+// checklist content defined — Construction/Roofing/Gutters have no source
+// material yet. (Rebuild now has a draft — see CHECKLIST_TEMPLATES.rebuild.)
+const CHECKLIST_TYPES_PENDING = ["construction", "roofing", "gutters"];
+
+// A job can carry more than one checklist "instance" over its life — e.g.
+// water damage that later also needs a mold checklist added, then
+// eventually a rebuild checklist once one exists. job_checklists just
+// records which types are attached; the actual checked items still live in
+// job_checklist_items, keyed by the type-prefixed item_key.
+async function fetchJobChecklists(jobId) {
+  const rows = await sbFetch(`job_checklists?job_id=eq.${encodeURIComponent(jobId)}`);
+  return rows || [];
+}
+async function addJobChecklist(jobId, checklistType, userName) {
+  const row = { job_id: jobId, checklist_type: checklistType, added_by: userName, added_at: new Date().toISOString() };
+  const inserted = await sbFetch("job_checklists", { method: "POST", body: JSON.stringify(row) });
+  return (inserted && inserted[0]) || row;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -3315,7 +3398,7 @@ function LoginScreen({ onLogin }) {
 
 // ─── Job Form ─────────────────────────────────────────────────────────────────
 function JobForm({ user, onDone, onRefresh }) {
-  const blank = { customerName: "", customerPhone: "", customerCellPhone: "", customerHomePhone: "", customerEmail: "", customerCompany: "", jobType: "", address: "", aptSuite: "", scope: "", estimatedCost: "", priority: "medium", crew: "Unassigned", bidDate: "", startDate: "", completedDate: "", claimNumber: "", adjusterName: "", adjusterPhone: "", adjusterEmail: "", propertyPin: "", needsPermit: false, permitObtained: false, permitDate: "", measurements: [], isEstimate: false, photoNames: [] };
+  const blank = { customerName: "", customerPhone: "", customerCellPhone: "", customerHomePhone: "", customerEmail: "", customerCompany: "", jobType: "", address: "", aptSuite: "", scope: "", estimatedCost: "", priority: "medium", crew: "Unassigned", projectLead: "", bidDate: "", startDate: "", completedDate: "", claimNumber: "", adjusterName: "", adjusterPhone: "", adjusterEmail: "", propertyPin: "", needsPermit: false, permitObtained: false, permitDate: "", measurements: [], isEstimate: false, photoNames: [] };
   const [form, setForm] = useState(blank);
   const [photoFiles, setPhotoFiles] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -3565,6 +3648,14 @@ function JobForm({ user, onDone, onRefresh }) {
             <button key={p.value} style={S.pill(form.priority === p.value, p.color)} onClick={() => set("priority", p.value)}>{p.label}</button>
           ))}
         </div>
+      </div>
+
+      <div style={S.card}>
+        <label style={S.lbl}>Project Lead</label>
+        <select style={{ ...S.input, appearance: "none" }} value={form.projectLead} onChange={e => set("projectLead", e.target.value)}>
+          <option value="">Select project lead…</option>
+          {ALL_EMPLOYEES.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
       </div>
 
       <div style={S.card}>
@@ -3910,6 +4001,7 @@ function JobCard({ job, onOpen }) {
         <span style={{ fontSize: 12, color: jt.color, fontWeight: 700 }}>{jt.icon} {jt.label}</span>
         <span style={{ fontSize: 12, color: BRAND.border }}>·</span>
         <span style={{ fontSize: 12, fontWeight: 700, color: pr.color }}>● {pr.label}</span>
+        {job.projectLead && <><span style={{ fontSize: 12, color: BRAND.border }}>·</span><span style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy }}>★ {job.projectLead}</span></>}
         {job.crew && job.crew !== "Unassigned" && <><span style={{ fontSize: 12, color: BRAND.border }}>·</span><span style={{ fontSize: 12, color: BRAND.muted }}>👷 {job.crew}</span></>}
         {job.scheduledDate && <><span style={{ fontSize: 12, color: BRAND.border }}>·</span><span style={{ fontSize: 12, color: BRAND.muted }}>📅 {fmtDate(job.scheduledDate)}</span></>}
         {showDollars && job.estimatedCost && <><span style={{ fontSize: 12, color: BRAND.border }}>·</span><span style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy }}>${Number(job.estimatedCost).toLocaleString()}</span></>}
@@ -6326,29 +6418,53 @@ function ClientMessages({ job, user }) {
 }
 
 // ─── Field Checklist ──────────────────────────────────────────────────────────
-// Walks the assigned crew through the S&H mitigation SOP for this job's loss
-// type (water/fire/mold/storm), one section at a time. Progress is stored in
-// job_checklist_items (one row per checked item, keyed to job_id + item_key)
-// so nothing is lost if someone closes the app mid-job. Completing certain
-// sections automatically advances jobs.workflow_stage forward — never
-// backward, and never for a job that's Declined/Expired/Voided — so the
-// client's Portal Dashboard reflects real field progress without anyone
-// having to remember to update a status dropdown.
+// Walks the assigned crew through the S&H mitigation SOP. A job can carry
+// more than one checklist "instance" over its life — e.g. water damage
+// that later also needs a mold checklist added, then eventually a rebuild
+// checklist once that SOP exists (job_checklists tracks which types are
+// attached to this job; job_checklist_items stores the actual checked
+// items, one row per item, keyed to job_id + item_key, so nothing is lost
+// if someone closes the app mid-job). The Initial Safety Gate is shared
+// across every checklist on the job — it only needs completing once per
+// site, not once per hazard type. Completing certain sections automatically
+// advances jobs.workflow_stage forward — never backward, and never for a
+// job that's Declined/Expired/Voided — so the Client Portal Dashboard
+// reflects real field progress without anyone remembering to flip a status
+// dropdown.
 function FieldChecklistSection({ job, user, onUpdate }) {
-  const template = CHECKLIST_TEMPLATES[job.jobType];
+  const [checklists, setChecklists] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [openSection, setOpenSection] = useState(null);
+  const [openKey, setOpenKey] = useState(null);
   const [savingKey, setSavingKey] = useState(null);
+  const [addingType, setAddingType] = useState("");
+  const [addingBusy, setAddingBusy] = useState(false);
   const [toast, setToast] = useState(null);
   function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); }
 
   async function load() {
     setLoading(true);
     try {
-      const rows = await sbFetch(`job_checklist_items?job_id=eq.${encodeURIComponent(job.id)}`);
-      setItems(rows || []);
-    } catch { setItems([]); }
+      const [cls, its] = await Promise.all([
+        fetchJobChecklists(job.id),
+        sbFetch(`job_checklist_items?job_id=eq.${encodeURIComponent(job.id)}`),
+      ]);
+      let active = cls;
+      // First time this tab is opened for a job with nothing attached yet:
+      // auto-seed the checklist matching the job's own job_type (if we have
+      // an SOP for it) so existing single-type jobs need zero extra clicks.
+      if (active.length === 0 && CHECKLIST_TEMPLATES[job.jobType]) {
+        try {
+          const seeded = await addJobChecklist(job.id, job.jobType, user.name);
+          active = [seeded];
+        } catch {}
+      }
+      setChecklists(active);
+      setItems(its || []);
+    } catch {
+      setChecklists([]);
+      setItems([]);
+    }
     setLoading(false);
   }
   useEffect(() => { load(); }, [job.id]);
@@ -6359,30 +6475,16 @@ function FieldChecklistSection({ job, user, onUpdate }) {
     return m;
   }, [items]);
 
-  // Default to opening the first section that isn't fully complete yet, so
-  // returning crew land right where they left off instead of at the top.
+  const safetyItems = CHECKLIST_SAFETY_SECTION.items;
+  const safetyDone = safetyItems.every(it => byKey[it.key]?.completed);
+
+  // Default to opening the Safety Gate if it's not done yet, otherwise leave
+  // everything collapsed so returning crew see the overview first.
   useEffect(() => {
-    if (!template || openSection !== null) return;
-    const firstIncomplete = template.sections.find(sec => {
-      const secItems = resolveSectionItems(sec, job);
-      return secItems.length === 0 || !secItems.every(it => byKey[it.key]?.completed);
-    });
-    setOpenSection(firstIncomplete ? firstIncomplete.key : template.sections[0].key);
+    if (loading || openKey !== null) return;
+    setOpenKey(safetyDone ? null : "safety");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [template, loading]);
-
-  if (!template) {
-    return (
-      <div style={{ textAlign: "center", color: BRAND.muted, fontSize: 13, padding: "16px 4px" }}>
-        Field checklists are currently defined for Water, Fire, Mold, and Storm jobs.
-        {job.jobType ? ` "${JOB_TYPES.find(t => t.value === job.jobType)?.label || job.jobType}" doesn't have an SOP checklist yet.` : ""}
-      </div>
-    );
-  }
-
-  async function setWaterCategory(cat) {
-    await onUpdate({ ...job, waterCategory: cat }, false);
-  }
+  }, [loading]);
 
   async function toggleItem(section, item, checked) {
     const key = item.key;
@@ -6409,16 +6511,14 @@ function FieldChecklistSection({ job, user, onUpdate }) {
         return next;
       });
 
-      // Check whether this completion finished the whole section, and if
-      // so, whether that section is configured to advance the job stage.
-      if (checked && section.advanceStage) {
+      if (section && checked && section.advanceStage) {
         const secItems = resolveSectionItems(section, job);
         const nowDone = secItems.every(it => it.key === key ? true : byKey[it.key]?.completed);
         if (nowDone) {
-          const next = maybeAdvanceWorkflowStage(job.workflowStage, section.advanceStage);
-          if (next) {
-            await onUpdate({ ...job, workflowStage: next }, false);
-            showToast(`Job stage advanced: ${next}`);
+          const nextStage = maybeAdvanceWorkflowStage(job.workflowStage, section.advanceStage);
+          if (nextStage) {
+            await onUpdate({ ...job, workflowStage: nextStage }, false);
+            showToast(`Job stage advanced: ${nextStage}`);
           }
         }
       }
@@ -6428,122 +6528,196 @@ function FieldChecklistSection({ job, user, onUpdate }) {
     setSavingKey(null);
   }
 
-  const safetySection = template.sections[0];
-  const safetyItems = resolveSectionItems(safetySection, job);
-  const safetyDone = safetyItems.every(it => byKey[it.key]?.completed);
+  async function handleAddChecklist() {
+    if (!addingType || !CHECKLIST_TEMPLATES[addingType]) return;
+    setAddingBusy(true);
+    try {
+      const added = await addJobChecklist(job.id, addingType, user.name);
+      setChecklists(prev => [...prev, added]);
+      setAddingType("");
+      showToast(`${CHECKLIST_TYPE_META[addingType]?.label || addingType} checklist added`);
+    } catch {
+      showToast("Couldn't add checklist", false);
+    }
+    setAddingBusy(false);
+  }
 
   if (loading) return <Spinner msg="Loading checklist…" />;
+
+  const activeTypes = checklists.map(c => c.checklist_type);
+  const addableTypes = Object.keys(CHECKLIST_TEMPLATES).filter(t => !activeTypes.includes(t));
+  const pendingRemaining = CHECKLIST_TYPES_PENDING.filter(t => !activeTypes.includes(t));
 
   return (
     <div>
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
       <div style={{ fontSize: 12.5, color: BRAND.muted, marginBottom: 12, lineHeight: 1.4 }}>
-        {template.label} SOP — tap a section to check off steps as the crew completes them. Each check is timestamped and attributed to whoever is signed in.
+        Tap a section to check off SOP steps as the crew completes them — each check is timestamped and attributed to whoever's signed in. A job can carry more than one checklist as its needs change (e.g. water damage that later also needs a mold checklist).
       </div>
 
-      {template.sections.map((section, sIdx) => {
-        const secItems = resolveSectionItems(section, job);
-        const doneCount = secItems.filter(it => byKey[it.key]?.completed).length;
-        const isComplete = secItems.length > 0 && doneCount === secItems.length;
-        const locked = sIdx > 0 && !safetyDone;
-        const open = openSection === section.key;
+      <ChecklistSectionCard
+        sectionKey="safety" label={CHECKLIST_SAFETY_SECTION.label} note={CHECKLIST_SAFETY_SECTION.note}
+        items={safetyItems} byKey={byKey} savingKey={savingKey} isComplete={safetyDone}
+        locked={false} open={openKey === "safety"}
+        onToggleOpen={() => setOpenKey(openKey === "safety" ? null : "safety")}
+        onToggleItem={(it, checked) => toggleItem(null, it, checked)}
+        badgeIcon="🛡"
+      />
 
+      {checklists.map(cl => {
+        const template = CHECKLIST_TEMPLATES[cl.checklist_type];
+        const meta = CHECKLIST_TYPE_META[cl.checklist_type] || { label: cl.checklist_type, icon: "📋", color: BRAND.navy };
+        if (!template) return null;
         return (
-          <div key={section.key} style={{
-            borderRadius: 12, border: `1.5px solid ${open ? BRAND.navy : BRAND.border}`,
-            background: BRAND.white, overflow: "hidden", marginBottom: 8,
-            opacity: locked ? 0.55 : 1,
-          }}>
-            <button
-              onClick={() => !locked && setOpenSection(open ? null : section.key)}
-              disabled={locked}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: open ? `${BRAND.navy}0D` : BRAND.white, border: "none", cursor: locked ? "default" : "pointer",
-                padding: "12px 14px", textAlign: "left", fontFamily: "inherit",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                <span style={{
-                  width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: isComplete ? "#16A34A" : locked ? BRAND.border : `${BRAND.navy}18`,
-                  color: isComplete ? "#fff" : BRAND.navy, fontSize: 12, fontWeight: 800,
-                }}>
-                  {isComplete ? "✓" : locked ? "🔒" : sIdx === 0 ? "🛡" : sIdx}
-                </span>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: locked ? BRAND.muted : (open ? BRAND.navy : BRAND.text) }}>{section.label}</span>
-              </div>
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: isComplete ? "#16A34A" : BRAND.muted, flexShrink: 0, marginLeft: 8 }}>
-                {secItems.length > 0 ? `${doneCount}/${secItems.length}` : "—"}
-              </span>
-            </button>
-
-            {open && !locked && (
-              <div style={{ padding: "6px 14px 14px", borderTop: `1px solid ${BRAND.border}` }}>
-                {section.note && (
-                  <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 10, fontStyle: "italic" }}>{section.note}</div>
-                )}
-
-                {section.categoryGated && (
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={S.lbl}>Water Category</label>
-                    <div style={S.pills}>
-                      {["1", "2", "3"].map(cat => (
-                        <button key={cat}
-                          style={S.pill(job.waterCategory === cat, "#2563EB")}
-                          onClick={() => setWaterCategory(cat)}
-                        >
-                          Category {cat}{cat === "3" ? " / Sewage" : ""}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {secItems.length === 0 && (
-                    <div style={{ fontSize: 12.5, color: BRAND.muted, padding: "6px 0" }}>Select a water category above to see the matching item.</div>
-                  )}
-                  {secItems.map(it => {
-                    const row = byKey[it.key];
-                    const done = !!row?.completed;
-                    const saving = savingKey === it.key;
-                    return (
-                      <label key={it.key} style={{
-                        display: "flex", alignItems: "flex-start", gap: 10, cursor: saving ? "default" : "pointer",
-                        padding: "9px 10px", borderRadius: 9,
-                        border: `1.5px solid ${done ? "#16A34A" : BRAND.border}`,
-                        background: done ? "#F0FDF4" : BRAND.white,
-                      }}>
-                        <div
-                          onClick={() => !saving && toggleItem(section, it, !done)}
-                          style={{
-                            width: 21, height: 21, borderRadius: 6, flexShrink: 0, marginTop: 1,
-                            border: `2px solid ${done ? "#16A34A" : BRAND.border}`,
-                            background: done ? "#16A34A" : "transparent",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            opacity: saving ? 0.5 : 1,
-                          }}
-                        >
-                          {done && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800 }}>✓</span>}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, color: done ? "#15803D" : BRAND.text, lineHeight: 1.4 }}>{it.label}</div>
-                          {done && row?.completed_by && (
-                            <div style={{ fontSize: 10.5, color: BRAND.muted, marginTop: 3 }}>
-                              ✓ {row.completed_by} · {fmtTs(row.completed_at)}
-                            </div>
-                          )}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          <div key={cl.id} style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: meta.color, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+              {meta.icon} {meta.label}
+            </div>
+            {template.sections.map((section, sIdx) => {
+              const secItems = resolveSectionItems(section, job);
+              const doneCount = secItems.filter(it => byKey[it.key]?.completed).length;
+              const isComplete = secItems.length > 0 && doneCount === secItems.length;
+              const key = `${cl.checklist_type}:${section.key}`;
+              return (
+                <ChecklistSectionCard
+                  key={key}
+                  sectionKey={key} label={section.label} note={section.note}
+                  items={secItems} byKey={byKey} savingKey={savingKey} isComplete={isComplete}
+                  locked={!safetyDone}
+                  open={openKey === key}
+                  onToggleOpen={() => setOpenKey(openKey === key ? null : key)}
+                  onToggleItem={(it, checked) => toggleItem(section, it, checked)}
+                  badgeIcon={sIdx + 1}
+                  categoryGated={section.categoryGated}
+                  waterCategory={job.waterCategory}
+                  onSetWaterCategory={(cat) => onUpdate({ ...job, waterCategory: cat }, false)}
+                />
+              );
+            })}
           </div>
         );
       })}
+
+      <div style={{ marginTop: 18, padding: "12px 14px", borderRadius: 10, border: `1.5px dashed ${BRAND.border}` }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.muted, marginBottom: 8 }}>+ Add Another Checklist</div>
+        {addableTypes.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: BRAND.muted }}>All defined checklists (Water, Fire, Mold, Storm) are already on this job.</div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select style={{ ...S.input, flex: 1, minWidth: 160 }} value={addingType} onChange={e => setAddingType(e.target.value)}>
+              <option value="">Choose a checklist…</option>
+              {addableTypes.map(t => (
+                <option key={t} value={t}>{CHECKLIST_TYPE_META[t]?.label || t}</option>
+              ))}
+            </select>
+            <button style={{ ...S.btn("primary"), width: "auto", marginTop: 0, padding: "10px 16px", opacity: (addingType && !addingBusy) ? 1 : 0.4 }}
+              onClick={handleAddChecklist} disabled={!addingType || addingBusy}>
+              {addingBusy ? "Adding…" : "Add"}
+            </button>
+          </div>
+        )}
+        {pendingRemaining.length > 0 && (
+          <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 8 }}>
+            No SOP checklist is defined yet for: {pendingRemaining.map(t => JOB_TYPES.find(j => j.value === t)?.label || t).join(", ")}.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Single collapsible SOP section — reused for both the shared Safety Gate
+// and every job-type-specific section under it.
+function ChecklistSectionCard({ label, note, items, byKey, savingKey, isComplete, locked, open, onToggleOpen, onToggleItem, badgeIcon, categoryGated, waterCategory, onSetWaterCategory }) {
+  const doneCount = items.filter(it => byKey[it.key]?.completed).length;
+  return (
+    <div style={{
+      borderRadius: 12, border: `1.5px solid ${open ? BRAND.navy : BRAND.border}`,
+      background: BRAND.white, overflow: "hidden", marginBottom: 8,
+      opacity: locked ? 0.55 : 1,
+    }}>
+      <button
+        onClick={() => !locked && onToggleOpen()}
+        disabled={locked}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: open ? `${BRAND.navy}0D` : BRAND.white, border: "none", cursor: locked ? "default" : "pointer",
+          padding: "12px 14px", textAlign: "left", fontFamily: "inherit",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span style={{
+            width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: isComplete ? "#16A34A" : locked ? BRAND.border : `${BRAND.navy}18`,
+            color: isComplete ? "#fff" : BRAND.navy, fontSize: 12, fontWeight: 800,
+          }}>
+            {isComplete ? "✓" : locked ? "🔒" : badgeIcon}
+          </span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: locked ? BRAND.muted : (open ? BRAND.navy : BRAND.text) }}>{label}</span>
+        </div>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: isComplete ? "#16A34A" : BRAND.muted, flexShrink: 0, marginLeft: 8 }}>
+          {items.length > 0 ? `${doneCount}/${items.length}` : "—"}
+        </span>
+      </button>
+
+      {open && !locked && (
+        <div style={{ padding: "6px 14px 14px", borderTop: `1px solid ${BRAND.border}` }}>
+          {note && <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 10, fontStyle: "italic" }}>{note}</div>}
+
+          {categoryGated && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={S.lbl}>Water Category</label>
+              <div style={S.pills}>
+                {["1", "2", "3"].map(cat => (
+                  <button key={cat} style={S.pill(waterCategory === cat, "#2563EB")} onClick={() => onSetWaterCategory(cat)}>
+                    Category {cat}{cat === "3" ? " / Sewage" : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {items.length === 0 && (
+              <div style={{ fontSize: 12.5, color: BRAND.muted, padding: "6px 0" }}>Select a water category above to see the matching item.</div>
+            )}
+            {items.map(it => {
+              const row = byKey[it.key];
+              const done = !!row?.completed;
+              const saving = savingKey === it.key;
+              return (
+                <label key={it.key} style={{
+                  display: "flex", alignItems: "flex-start", gap: 10, cursor: saving ? "default" : "pointer",
+                  padding: "9px 10px", borderRadius: 9,
+                  border: `1.5px solid ${done ? "#16A34A" : BRAND.border}`,
+                  background: done ? "#F0FDF4" : BRAND.white,
+                }}>
+                  <div
+                    onClick={() => !saving && onToggleItem(it, !done)}
+                    style={{
+                      width: 21, height: 21, borderRadius: 6, flexShrink: 0, marginTop: 1,
+                      border: `2px solid ${done ? "#16A34A" : BRAND.border}`,
+                      background: done ? "#16A34A" : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      opacity: saving ? 0.5 : 1,
+                    }}
+                  >
+                    {done && <span style={{ color: "#fff", fontSize: 12, fontWeight: 800 }}>✓</span>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: done ? "#15803D" : BRAND.text, lineHeight: 1.4 }}>{it.label}</div>
+                    {done && row?.completed_by && (
+                      <div style={{ fontSize: 10.5, color: BRAND.muted, marginTop: 3 }}>
+                        ✓ {row.completed_by} · {fmtTs(row.completed_at)}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -10336,6 +10510,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs,
     permitObtained: job.permitObtained || false,
     permitDate: job.permitDate || "",
     isEstimate: job.isEstimate || false,
+    projectLead: job.projectLead || "",
     depositPaid: job.depositPaid || false, depositPaidDate: job.depositPaidDate || "",
     depositAmount: job.depositAmount || "",
     finalPaid: job.finalPaid || false, finalPaidDate: job.finalPaidDate || "",
@@ -10685,6 +10860,13 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs,
                     const c = STATUS_META[s];
                     return <button key={s} style={{ ...S.pill(fields.status === s, c.text), borderColor: fields.status === s ? c.text : BRAND.border }} onClick={() => setF("status", s)}>{s}</button>;
                   })}
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <label style={S.lbl}>Project Lead</label>
+                  <select style={{ ...S.input, appearance: "none" }} value={fields.projectLead} onChange={e => setF("projectLead", e.target.value)}>
+                    <option value="">Select project lead…</option>
+                    {ALL_EMPLOYEES.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
                 </div>
                 <div style={{ marginTop: 14 }}>
                   <label style={S.lbl}>Assigned To</label>
@@ -12938,21 +13120,57 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
       finalCanvas.getContext("2d").drawImage(canvas, 0, 0);
       const dataUrl = finalCanvas.toDataURL("image/png");
 
-      // Save to docs
+      // Save to docs — first work out which job this estimate belongs to.
+      // If an existing job was picked, use it (and keep the existing
+      // behavior of attaching the estimate image to that job's photos).
+      // If not — a brand-new prospect with no job yet — auto-create one so
+      // it shows up in the Jobs view under "Estimate" instead of only
+      // existing as a document with no job record at all.
+      let linkedJobId = form.jobId || "";
+      let wasNewJob = false;
+      if (!linkedJobId) {
+        try {
+          const newId = await getNextJobNumber();
+          const newJob = {
+            id: newId, status: "New", isEstimate: true,
+            customerName: form.clientName || "", customerPhone: form.clientPhone || "",
+            customerCellPhone: "", customerHomePhone: "", customerEmail: "", customerCompany: "",
+            jobType: "", address: form.clientAddress || "", aptSuite: "",
+            scope: form.lineItems.map(l => l.description).filter(Boolean).join("; "),
+            estimatedCost: total ? total.toFixed(2) : "", priority: "medium",
+            crew: "Unassigned", projectLead: "",
+            scheduledDate: "", bidDate: form.estimateDate || "", startDate: "", completedDate: "",
+            claimNumber: "", adjusterName: "", adjusterPhone: "", adjusterEmail: "",
+            propertyPin: "", needsPermit: false, permitObtained: false, permitDate: "",
+            measurements: [], photoNames: [dataUrl],
+            submittedBy: user.name, submittedAt: new Date().toISOString(),
+            receipts: [], jobTasks: [],
+          };
+          await insertJob(newJob);
+          linkedJobId = newId;
+          wasNewJob = true;
+        } catch (e) {
+          console.error("Auto-create job from estimate failed:", e);
+          // Not fatal — the estimate document itself still saves below either way.
+        }
+      }
+
       const docName = `Estimate ${form.estimateNumber} — ${form.clientName}`;
       await insertDoc({
         id: "DOC-" + Date.now(),
         name: docName,
-        description: `Estimate for ${form.jobId || "job"} · $${total.toFixed(2)} · Created ${today}`,
+        description: `Estimate for ${linkedJobId || "job"} · $${total.toFixed(2)} · Created ${today}`,
         url: dataUrl,
         file_type: "png",
         doc_type: "estimate",
         uploaded_by: user.name,
         uploaded_at: new Date().toISOString(),
+        linked_job_id: linkedJobId || null,
       });
 
-      // Attach to job
-      if (form.jobId) {
+      // Attach to job (existing-job path only — a newly-created job already
+      // got the estimate image set as its photoNames above).
+      if (form.jobId && !wasNewJob) {
         const job = jobs.find(j => j.id === form.jobId);
         if (job) {
           const updated = { ...job, photoNames: [...(job.photoNames || []), dataUrl] };
@@ -12960,7 +13178,7 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
         }
       }
 
-      onSaved(form.jobId, form.estimateNumber);
+      onSaved(linkedJobId, form.estimateNumber, wasNewJob);
     } catch(e) {
       console.error(e);
       setToast({ msg: "Error saving estimate", ok: false });
@@ -13812,7 +14030,7 @@ function WorkAuthorizationSection({ job, user, onUpdate }) {
 }
 
 // ─── Doc Type Tab (Contracts / Invoices) ─────────────────────────────────────
-function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
+function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
@@ -13980,7 +14198,12 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg }) {
       {creatingDoc && docType === "estimate" && (
         <EstimateGenerator jobs={jobs} user={user}
           onClose={() => setCreatingDoc(false)}
-          onSaved={() => { setCreatingDoc(false); load(); setToast({ msg: "Estimate saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+          onSaved={(jobId, estimateNumber, wasNewJob) => {
+            setCreatingDoc(false); load();
+            if (wasNewJob) onJobsChanged?.();
+            setToast({ msg: wasNewJob ? "Estimate saved — new job added to Jobs!" : "Estimate saved!", ok: true });
+            setTimeout(() => setToast(null), 3000);
+          }}
         />
       )}
       {acceptingDoc && (
@@ -24167,11 +24390,11 @@ export default function App() {
             {tab==="materials" && <MaterialPricesTab user={user} isDesktopView={isDesktopView} />}
             {tab==="mileage"   && (() => { markFeatureSeen("mileage"); return <MileageTab user={user} jobs={jobs} autoStartTrip={quickAction === "startTrip"} onConsumeAutoStart={() => setQuickAction(null)} />; })()}
             {tab==="docs"      && <DocsTab user={user} jobs={jobs} isDesktopView={isDesktopView} />}
-            {tab==="contracts" && <DocTypeTab user={user} jobs={jobs} docType="contract" title="Contracts" icon="📝" emptyMsg="No contracts yet. Create one from the Docs tab." />}
+            {tab==="contracts" && <DocTypeTab user={user} jobs={jobs} docType="contract" title="Contracts" icon="📝" emptyMsg="No contracts yet. Create one from the Docs tab." onJobsChanged={loadJobs} />}
             {tab==="tasks"     && <MyTasksTab jobs={jobs} user={user} onRefresh={loadJobs} isDesktopView={isDesktopView} />}
             {tab==="leads"     && <LeadsTab user={user} isDesktopView={isDesktopView} />}
-            {tab==="invoices"  && <DocTypeTab user={user} jobs={jobs} docType="invoice" title="Invoices" icon="💰" emptyMsg="No invoices yet. Upload one from the Docs tab." />}
-            {tab==="estimates" && <DocTypeTab user={user} jobs={jobs} docType="estimate" title="Estimates" icon="📐" emptyMsg="No estimates yet. Tap Create Estimate above to put together a bid for a client." />}
+            {tab==="invoices"  && <DocTypeTab user={user} jobs={jobs} docType="invoice" title="Invoices" icon="💰" emptyMsg="No invoices yet. Upload one from the Docs tab." onJobsChanged={loadJobs} />}
+            {tab==="estimates" && <DocTypeTab user={user} jobs={jobs} docType="estimate" title="Estimates" icon="📐" emptyMsg="No estimates yet. Tap Create Estimate above to put together a bid for a client." onJobsChanged={loadJobs} />}
             {tab==="backup"    && <BackupTab jobs={jobs} user={user} />}
             {tab==="admin"     && <AdminTab user={user} onShowPolicy={() => setShowPolicyModal(true)} />}
             {tab==="companyinfo" && <CompanyInfoTab user={user} />}
