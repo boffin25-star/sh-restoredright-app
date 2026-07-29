@@ -836,6 +836,7 @@ const ALL_TABS = [
   { id:"calendar",    label:"Schedule",    icon:"📅" },
   { id:"receipts",    label:"Receipts",    icon:"🧾" },
   { id:"contracts",   label:"Contracts",   icon:"📝" },
+  { id:"workauths",   label:"Authorizations", icon:"🖋️" },
   { id:"invoices",    label:"Invoices",    icon:"💰" },
   { id:"estimates",   label:"Estimates",   icon:"📐" },
   { id:"rates",       label:"Rates",       icon:"📊" },
@@ -5738,6 +5739,8 @@ const BLANK_TASK = {
 // add their own on top, exactly like any task they'd have typed by hand.
 const JOB_TYPE_CHECKLISTS = {
   water: [
+    "Authorization Form Sent",
+    "Authorization Form Signed & Approved",
     "Take moisture readings & photos of affected areas",
     "Extract standing water",
     "Set up air movers / dehumidifiers",
@@ -5747,6 +5750,8 @@ const JOB_TYPE_CHECKLISTS = {
     "Final moisture readings & sign-off",
   ],
   fire: [
+    "Authorization Form Sent",
+    "Authorization Form Signed & Approved",
     "Photograph all fire/smoke/soot damage before touching anything",
     "Board up / secure the structure",
     "HEPA vacuum soot from surfaces",
@@ -5755,6 +5760,8 @@ const JOB_TYPE_CHECKLISTS = {
     "Final walkthrough photos",
   ],
   mold: [
+    "Authorization Form Sent",
+    "Authorization Form Signed & Approved",
     "Photograph visible mold and the moisture source",
     "Set up containment (poly sheeting, negative air)",
     "Run HEPA air scrubber",
@@ -5764,6 +5771,8 @@ const JOB_TYPE_CHECKLISTS = {
     "Final photos",
   ],
   storm: [
+    "Authorization Form Sent",
+    "Authorization Form Signed & Approved",
     "Photograph exterior damage (roof, siding, windows)",
     "Tarp or board any active leaks/openings",
     "Take adjuster-ready damage photos",
@@ -13902,7 +13911,103 @@ function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
   );
 }
 
-// ─── Work Authorization ───────────────────────────────────────────────────────
+// ─── Work Authorization: shared helpers ────────────────────────────────────
+// One code generator + creation routine used by both the per-job Work
+// Authorization card and the global Authorizations tab, so an authorization
+// is always created the same way no matter where staff start from.
+function genAuthCode() {
+  return "WA-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
+}
+const WORKAUTH_SCOPE_DEFAULTS = {
+  water: "Emergency inspection & assessment\nWater extraction\nMoisture monitoring\nAffected material removal (as needed)\nDaily monitoring until dry standard met",
+  fire: "Emergency inspection & assessment\nBoard-up / securing the structure\nSoot & smoke cleaning\nOdor control\nContents inventory (as needed)",
+  mold: "Emergency inspection & assessment\nContainment setup\nAir scrubbing / negative air\nRemoval of affected materials\nAntimicrobial treatment",
+  storm: "Emergency inspection & assessment\nTarping / board-up of active openings\nDebris removal\nDamage documentation for insurance",
+};
+async function createWorkAuthorization({ job, user, wizardMode = "detailed", depositAmount }) {
+  const authCode = genAuthCode();
+  const waRow = {
+    id: "WA-" + Date.now(),
+    auth_code: authCode,
+    job_id: job.id,
+    loss_type: job.jobType,
+    status: "draft",
+    version: 1,
+    wizard_mode: wizardMode,
+    pm_name: user.name,
+    pm_phone: "(509) 903-5744",
+    scope_summary: WORKAUTH_SCOPE_DEFAULTS[job.jobType] || "",
+    contamination_category: job.jobType === "water" ? (job.waterCategory || "na") : null,
+    deposit_amount: depositAmount || job.depositAmount || null,
+    created_by: user.name,
+    created_at: new Date().toISOString(),
+  };
+  await sbFetch("work_authorizations", { method: "POST", body: JSON.stringify(waRow) });
+  const authLink = `https://sh-client-portal.vercel.app/#authorize=${authCode}`;
+  await insertDoc({
+    id: "DOC-WA-" + Date.now(),
+    name: `Work Authorization — ${job.customerName || "Client"}`,
+    description: `${JOB_TYPES.find(t => t.value === job.jobType)?.label || job.jobType || ""} damage — ${job.address || ""}`,
+    url: authLink,
+    file_type: "link",
+    doc_type: "workauth",
+    uploaded_by: user.name,
+    uploaded_at: new Date().toISOString(),
+    status: "draft",
+    linked_job_id: job.id,
+  });
+  return waRow;
+}
+// Marks a job_tasks entry Completed by title. Auto-created tasks don't have
+// a stable, predictable id to hand between the WA flow and whatever screen
+// triggered it, so title is the match key — silently a no-op if nothing
+// matches (task already done, deleted, or never existed for this job type).
+function completeJobTaskByTitle(tasks, title) {
+  let changed = false;
+  const next = (tasks || []).map(t => {
+    if (t.title === title && t.status !== "Completed") {
+      changed = true;
+      return { ...t, status: "Completed", completedDate: new Date().toISOString().slice(0, 10) };
+    }
+    return t;
+  });
+  return changed ? next : null;
+}
+// Best-effort mirror of a work_authorizations status change onto its linked
+// documents row, so the global Authorizations tab and per-job card never
+// show conflicting status badges. Fire-and-forget, like every other sync
+// write in this file — nothing blocks the user's actual action on it.
+async function syncWorkAuthDocStatus(jobId, status) {
+  try {
+    await sbFetch(`documents?linked_job_id=eq.${encodeURIComponent(jobId)}&doc_type=eq.workauth`, {
+      method: "PATCH", body: JSON.stringify({ status }),
+    });
+  } catch {}
+}
+// Advances a job's workflow_stage + completes the matching job_tasks entry
+// for a given work_authorizations status, in one PATCH — used from every
+// place a WA status can change (send, approve) so the job record and task
+// list never drift out of sync with each other.
+async function syncJobForWorkAuthStatus(job, status, onUpdate) {
+  const STAGE_FOR_STATUS = {
+    sent: "Authorization Sent", viewed: "Authorization Viewed",
+    signed: "Authorization Signed", approved: "Approved to Begin",
+  };
+  const TASK_FOR_STATUS = {
+    sent: "Authorization Form Sent", approved: "Authorization Form Signed & Approved",
+  };
+  const patch = {};
+  const nextStage = maybeAdvanceWorkflowStage(job.workflowStage, STAGE_FOR_STATUS[status]);
+  if (nextStage) patch.workflowStage = nextStage;
+  const taskTitle = TASK_FOR_STATUS[status];
+  if (taskTitle) {
+    const nextTasks = completeJobTaskByTitle(job.jobTasks, taskTitle);
+    if (nextTasks) patch.jobTasks = nextTasks;
+  }
+  if (Object.keys(patch).length && onUpdate) await onUpdate({ ...job, ...patch }, false);
+}
+
+
 // Sends the client's Work Authorization signing link (created in the S&H
 // Client Portal's Admin panel — this app doesn't build that record, only
 // sends it). Mirrors the exact same client-side mailto:/sms: deep-link
@@ -13918,6 +14023,10 @@ function WorkAuthorizationSection({ job, user, onUpdate }) {
   const [smsModal, setSmsModal] = useState(false);
   const [smsTo, setSmsTo] = useState("");
   const [toast, setToast] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [wizardMode, setWizardMode] = useState("detailed");
+  const [busy, setBusy] = useState(false);
+  const [approving, setApproving] = useState(false);
   function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); }
 
   async function load() {
@@ -13928,6 +14037,10 @@ function WorkAuthorizationSection({ job, user, onUpdate }) {
       setWa(row);
       setEmailTo(row?.client_email || job.customerEmail || "");
       setSmsTo(job.customerCellPhone || job.customerPhone || "");
+      // Sync-on-view: since there's no live backend push from the client
+      // portal, this is where the job's stage/tasks catch up to whatever
+      // the client has done since staff last opened this job.
+      if (row?.status) await syncJobForWorkAuthStatus(job, row.status.toLowerCase(), onUpdate);
     } catch { setWa(null); }
     setLoading(false);
   }
@@ -13937,22 +14050,46 @@ function WorkAuthorizationSection({ job, user, onUpdate }) {
   const lossTypeLabel = JOB_TYPES.find(t => t.value === job.jobType)?.label || job.jobType || "damage";
   const firstName = (job.customerName || "").split(" ")[0] || "there";
 
-  // Marks the authorization (and the job's own workflow_stage) as sent —
-  // never regresses an authorization that's already further along
-  // (viewed/signed) back to "sent" if it was tapped again.
+  async function createNow() {
+    setBusy(true);
+    try {
+      const row = await createWorkAuthorization({ job, user, wizardMode });
+      setWa(row);
+      setCreating(false);
+      showToast("Work Authorization created — email or text the link below!");
+    } catch { showToast("Couldn't create the authorization — try again.", false); }
+    setBusy(false);
+  }
+
+  // Marks the authorization (and the job's own workflow_stage + task) as
+  // sent — never regresses an authorization that's already further along
+  // (viewed/signed/approved) back to "sent" if it was tapped again.
   async function markSent(via) {
     if (!wa) return;
     try {
       const priorVia = (wa.sent_via || "").split(",").map(s => s.trim()).filter(Boolean);
       const nextVia = priorVia.includes(via) ? priorVia : [...priorVia, via];
       const patch = { sent_via: nextVia.join(","), sent_at: wa.sent_at || new Date().toISOString() };
-      const advancedStatuses = ["viewed", "signed"];
+      const advancedStatuses = ["viewed", "signed", "approved"];
       if (!advancedStatuses.includes((wa.status || "").toLowerCase())) patch.status = "sent";
       await sbFetch(`work_authorizations?id=eq.${wa.id}`, { method: "PATCH", body: JSON.stringify(patch) });
       setWa(prev => ({ ...prev, ...patch }));
-      const nextStage = maybeAdvanceWorkflowStage(job.workflowStage, "Authorization Sent");
-      if (nextStage) await onUpdate({ ...job, workflowStage: nextStage }, false);
+      if (patch.status) { syncWorkAuthDocStatus(job.id, patch.status); await syncJobForWorkAuthStatus(job, patch.status, onUpdate); }
     } catch {}
+  }
+
+  async function approve() {
+    if (!wa || wa.status !== "signed") return;
+    setApproving(true);
+    try {
+      const patch = { status: "approved", approved_by: user.name, approved_at: new Date().toISOString() };
+      await sbFetch(`work_authorizations?id=eq.${wa.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setWa(prev => ({ ...prev, ...patch }));
+      syncWorkAuthDocStatus(job.id, "approved");
+      await syncJobForWorkAuthStatus(job, "approved", onUpdate);
+      showToast("Authorization approved!");
+    } catch { showToast("Couldn't approve — try again.", false); }
+    setApproving(false);
   }
 
   async function sendEmail() {
@@ -13988,14 +14125,46 @@ function WorkAuthorizationSection({ job, user, onUpdate }) {
 
   if (!wa) {
     return (
-      <div style={{ textAlign: "center", color: BRAND.muted, fontSize: 13, padding: "16px 4px", lineHeight: 1.5 }}>
-        No Work Authorization has been created for this job yet. Create one from the Client Portal Admin panel — once it exists, you'll be able to email or text the signing link right from here.
+      <div>
+        {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+        {!creating ? (
+          <div style={{ textAlign: "center", padding: "16px 4px" }}>
+            <div style={{ color: BRAND.muted, fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+              No Work Authorization has been created for this job yet.
+            </div>
+            <button onClick={() => setCreating(true)} style={{ fontSize: 12.5, fontWeight: 700, padding: "8px 16px", borderRadius: 8, border: "none", background: BRAND.navy, color: "#fff", cursor: "pointer" }}>
+              🖋️ Create Work Authorization
+            </button>
+          </div>
+        ) : (
+          <div style={S.card}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy, marginBottom: 10 }}>New Work Authorization</div>
+            <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 10 }}>
+              Uses this job's type ({lossTypeLabel}), address, and contact info automatically. Pick which version the client sees:
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <button onClick={() => setWizardMode("simple")} style={{ flex: 1, fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${BRAND.navy}`, background: wizardMode === "simple" ? BRAND.navy : "#fff", color: wizardMode === "simple" ? "#fff" : BRAND.navy }}>
+                Simple (4 steps)
+              </button>
+              <button onClick={() => setWizardMode("detailed")} style={{ flex: 1, fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${BRAND.navy}`, background: wizardMode === "detailed" ? BRAND.navy : "#fff", color: wizardMode === "detailed" ? "#fff" : BRAND.navy }}>
+                Detailed (12 steps)
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setCreating(false)} style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${BRAND.border}`, background: "#fff", color: BRAND.muted, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createNow} disabled={busy} style={{ flex: 1, fontSize: 12.5, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: "none", background: BRAND.navy, color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+                {busy ? "Creating…" : "Create & Continue"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   const statusMeta = {
-    signed: { label: "Signed", bg: "#F0FDF4", text: "#15803D", border: "#BBF7D0" },
+    approved: { label: "Approved", bg: "#F0FDF4", text: "#15803D", border: "#BBF7D0" },
+    signed: { label: "Signed — Needs Approval", bg: "#FEF3C7", text: "#92400E", border: "#FDE68A" },
     viewed: { label: "Viewed", bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE" },
     sent: { label: "Sent", bg: "#FFF7ED", text: "#B45309", border: "#FDE68A" },
   }[(wa.status || "").toLowerCase()] || { label: wa.status || "Not Sent", bg: "#F1F5F9", text: "#475569", border: "#CBD5E1" };
@@ -14019,11 +14188,239 @@ function WorkAuthorizationSection({ job, user, onUpdate }) {
         {wa.sent_at && <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 3 }}>Sent {fmtTs(wa.sent_at)}{wa.sent_via ? ` via ${wa.sent_via}` : ""}</div>}
         {wa.viewed_at && <div style={{ fontSize: 11.5, color: BRAND.muted, marginBottom: 3 }}>Viewed {fmtTs(wa.viewed_at)}</div>}
         {wa.client_signed_at && <div style={{ fontSize: 11.5, color: "#15803D", marginBottom: 3 }}>Signed {fmtTs(wa.client_signed_at)} by {wa.client_signature_name || "client"}</div>}
+        {wa.approved_at && <div style={{ fontSize: 11.5, color: "#15803D", marginBottom: 3 }}>Approved {fmtTs(wa.approved_at)} by {wa.approved_by}</div>}
+
+        {wa.status === "signed" && canAdmin(user) && (
+          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: 10, margin: "10px 0" }}>
+            <div style={{ fontSize: 12, color: "#92400E", marginBottom: 8 }}>Client has signed — review before work is approved to begin.</div>
+            <button onClick={() => window.open(authLink, "_blank")} style={{ fontSize: 11.5, fontWeight: 700, padding: "6px 12px", borderRadius: 7, border: `1.5px solid #92400E`, background: "#fff", color: "#92400E", cursor: "pointer", marginRight: 8 }}>👁 View Signed Form</button>
+            <button onClick={approve} disabled={approving} style={{ fontSize: 11.5, fontWeight: 700, padding: "6px 12px", borderRadius: 7, border: "none", background: "#15803D", color: "#fff", cursor: "pointer", opacity: approving ? 0.6 : 1 }}>
+              {approving ? "Approving…" : "✓ Approve"}
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button onClick={() => setEmailModal(true)} style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: "#0369A1", color: "#fff", cursor: "pointer" }}>✉️ Email</button>
           <button onClick={() => setSmsModal(true)} style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: "#16A34A", color: "#fff", cursor: "pointer" }}>💬 Text</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Work Authorizations (global tab) ────────────────────────────────────────
+// Lists every work_authorizations row across all jobs — the "Documents tab"
+// home for authorizations, alongside Contracts/Invoices/Estimates. Kept as
+// its own component rather than folded into DocTypeTab because a work
+// authorization is a live signing link, not an uploaded/rendered file —
+// there's no image to View/Print, so the actions here are Open Link /
+// Email / Text / Approve instead.
+function WorkAuthorizationsTab({ user, jobs, onJobsChanged }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+  const [emailModal, setEmailModal] = useState(null);
+  const [emailTo, setEmailTo] = useState("");
+  const [smsModal, setSmsModal] = useState(null);
+  const [smsTo, setSmsTo] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createJobId, setCreateJobId] = useState("");
+  const [createMode, setCreateMode] = useState("detailed");
+  const [busyId, setBusyId] = useState(null);
+  function showToast(msg, ok = true) { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); }
+
+  async function load() {
+    setLoading(true);
+    try {
+      const all = await sbFetch(`work_authorizations?order=created_at.desc`);
+      setRows(all || []);
+    } catch {}
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  const eligibleJobs = jobs.filter(j => ["water", "fire", "mold", "storm"].includes(j.jobType));
+
+  async function createNow() {
+    const job = jobs.find(j => j.id === createJobId);
+    if (!job) { showToast("Pick a job first", false); return; }
+    setBusyId("new");
+    try {
+      await createWorkAuthorization({ job, user, wizardMode: createMode });
+      setCreating(false); setCreateJobId("");
+      load();
+      showToast("Work Authorization created!");
+    } catch { showToast("Couldn't create it — try again.", false); }
+    setBusyId(null);
+  }
+
+  async function persistJobPatch(jobId, patch) {
+    const dbPatch = {};
+    if (patch.jobTasks) dbPatch.job_tasks = JSON.stringify(patch.jobTasks);
+    if (patch.workflowStage) dbPatch.workflow_stage = patch.workflowStage;
+    if (Object.keys(dbPatch).length) {
+      await sbFetch(`jobs?id=eq.${encodeURIComponent(jobId)}`, { method: "PATCH", body: JSON.stringify(dbPatch) });
+      onJobsChanged?.();
+    }
+  }
+
+  async function syncJob(job, status) {
+    if (!job) return;
+    const STAGE_FOR_STATUS = { sent: "Authorization Sent", viewed: "Authorization Viewed", signed: "Authorization Signed", approved: "Approved to Begin" };
+    const TASK_FOR_STATUS = { sent: "Authorization Form Sent", approved: "Authorization Form Signed & Approved" };
+    const patch = {};
+    const nextStage = maybeAdvanceWorkflowStage(job.workflowStage, STAGE_FOR_STATUS[status]);
+    if (nextStage) patch.workflowStage = nextStage;
+    const taskTitle = TASK_FOR_STATUS[status];
+    if (taskTitle) {
+      const nextTasks = completeJobTaskByTitle(job.jobTasks, taskTitle);
+      if (nextTasks) patch.jobTasks = nextTasks;
+    }
+    if (Object.keys(patch).length) await persistJobPatch(job.id, patch);
+  }
+
+  async function markSent(row, job, via) {
+    try {
+      const priorVia = (row.sent_via || "").split(",").map(s => s.trim()).filter(Boolean);
+      const nextVia = priorVia.includes(via) ? priorVia : [...priorVia, via];
+      const patch = { sent_via: nextVia.join(","), sent_at: row.sent_at || new Date().toISOString() };
+      const advanced = ["viewed", "signed", "approved"];
+      if (!advanced.includes((row.status || "").toLowerCase())) patch.status = "sent";
+      await sbFetch(`work_authorizations?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...patch } : r));
+      if (patch.status) { syncWorkAuthDocStatus(job?.id, patch.status); await syncJob(job, patch.status); }
+    } catch {}
+  }
+
+  async function sendEmail(row) {
+    const job = jobs.find(j => j.id === row.job_id);
+    if (!emailTo || !job) return;
+    const authLink = `https://sh-client-portal.vercel.app/#authorize=${row.auth_code}`;
+    const lossTypeLabel = JOB_TYPES.find(t => t.value === job.jobType)?.label || job.jobType || "damage";
+    const firstName = (job.customerName || "").split(" ")[0] || "there";
+    const subject = encodeURIComponent(`Work Authorization — ${job.customerName || "Your Project"} — S&H Services Spokane`);
+    const body = encodeURIComponent(
+      `Hello ${firstName},\n\nThank you for choosing S & H Services Spokane.\n\nBefore our team begins emergency ${lossTypeLabel.toLowerCase()} damage services, please review and electronically sign the Work Authorization for your property using the secure link below.\n\nProject: ${job.id}\nProperty: ${job.address || ""}\nProject Type: ${lossTypeLabel}\nAssigned Project Manager: ${user.name}\nTelephone: (509) 903-5744\n\n${authLink}\n\nAfter signing, you will receive a completed copy for your records and our team will be notified.\n\nS & H Services Spokane\nSimple | Honest\nRestoration Done Right!`
+    );
+    window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
+    await markSent(row, job, "email");
+    setEmailModal(null);
+    showToast("Email ready — review and hit send!");
+  }
+  async function sendText(row) {
+    const job = jobs.find(j => j.id === row.job_id);
+    if (!smsTo || !job) return;
+    const authLink = `https://sh-client-portal.vercel.app/#authorize=${row.auth_code}`;
+    const firstName = (job.customerName || "").split(" ")[0] || "there";
+    const msg = encodeURIComponent(`Hi ${firstName}, this is S&H Services Spokane. Please review and sign your Work Authorization here:\n${authLink}\n\nQuestions? Call (509) 903-5744.`);
+    const phone = smsTo.replace(/\D/g, "");
+    window.open(/iphone|ipad|ipod/i.test(navigator.userAgent) ? `sms:${phone}&body=${msg}` : `sms:${phone}?body=${msg}`);
+    await markSent(row, job, "sms");
+    setSmsModal(null);
+    showToast("Messages app opened!");
+  }
+
+  async function approve(row) {
+    const job = jobs.find(j => j.id === row.job_id);
+    if (row.status !== "signed") return;
+    setBusyId(row.id);
+    try {
+      const patch = { status: "approved", approved_by: user.name, approved_at: new Date().toISOString() };
+      await sbFetch(`work_authorizations?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, ...patch } : r));
+      syncWorkAuthDocStatus(job?.id, "approved");
+      await syncJob(job, "approved");
+      showToast("Authorization approved!");
+    } catch { showToast("Couldn't approve — try again.", false); }
+    setBusyId(null);
+  }
+
+  const statusMeta = (status) => ({
+    approved: { label: "Approved", bg: "#F0FDF4", text: "#15803D", border: "#BBF7D0" },
+    signed: { label: "Signed — Needs Approval", bg: "#FEF3C7", text: "#92400E", border: "#FDE68A" },
+    viewed: { label: "Viewed", bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE" },
+    sent: { label: "Sent", bg: "#FFF7ED", text: "#B45309", border: "#FDE68A" },
+    draft: { label: "Draft", bg: "#F1F5F9", text: "#475569", border: "#CBD5E1" },
+    voided: { label: "Voided", bg: "#FEF2F2", text: "#B91C1C", border: "#FECACA" },
+  }[(status || "").toLowerCase()] || { label: status || "Draft", bg: "#F1F5F9", text: "#475569", border: "#CBD5E1" });
+
+  return (
+    <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column" }}>
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+      {emailModal && <ShareModal type="email" doc={{ name: "Work Authorization" }} docType="workauth" value={emailTo} setValue={setEmailTo} onSend={() => sendEmail(emailModal)} onClose={() => setEmailModal(null)} />}
+      {smsModal && <ShareModal type="sms" doc={{ name: "Work Authorization" }} docType="workauth" value={smsTo} setValue={setSmsTo} onSend={() => sendText(smsModal)} onClose={() => setSmsModal(null)} />}
+
+      <div style={S.scroll}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy }}>🖋️ Authorizations</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={load} style={{ background: "none", border: `1.5px solid ${BRAND.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 16 }}>🔄</button>
+            <button onClick={() => setCreating(true)} style={{ background: "#16A34A", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 12, padding: "6px 12px", cursor: "pointer" }}>🖋️ Create</button>
+          </div>
+        </div>
+
+        {creating && (
+          <div style={{ ...S.card, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.navy, marginBottom: 10 }}>New Work Authorization</div>
+            <label style={S.lbl}>Job</label>
+            <select value={createJobId} onChange={e => setCreateJobId(e.target.value)} style={{ ...S.input, marginBottom: 10 }}>
+              <option value="">Select a job…</option>
+              {eligibleJobs.map(j => <option key={j.id} value={j.id}>{j.customerName} — {j.address}</option>)}
+            </select>
+            <label style={S.lbl}>Client Experience</label>
+            <div style={{ display: "flex", gap: 8, margin: "6px 0 14px" }}>
+              <button onClick={() => setCreateMode("simple")} style={{ flex: 1, fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${BRAND.navy}`, background: createMode === "simple" ? BRAND.navy : "#fff", color: createMode === "simple" ? "#fff" : BRAND.navy }}>Simple (4 steps)</button>
+              <button onClick={() => setCreateMode("detailed")} style={{ flex: 1, fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${BRAND.navy}`, background: createMode === "detailed" ? BRAND.navy : "#fff", color: createMode === "detailed" ? "#fff" : BRAND.navy }}>Detailed (12 steps)</button>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setCreating(false)} style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${BRAND.border}`, background: "#fff", color: BRAND.muted, cursor: "pointer" }}>Cancel</button>
+              <button onClick={createNow} disabled={busyId === "new" || !createJobId} style={{ flex: 1, fontSize: 12.5, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: "none", background: BRAND.navy, color: "#fff", cursor: "pointer", opacity: (busyId === "new" || !createJobId) ? 0.6 : 1 }}>
+                {busyId === "new" ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {loading ? <Spinner msg="Loading authorizations…" /> : rows.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 48 }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>🖋️</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: BRAND.navy }}>No Work Authorizations yet</div>
+            <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 4 }}>Tap Create above, or open a water/fire/mold/storm job's detail view.</div>
+          </div>
+        ) : rows.map(row => {
+          const job = jobs.find(j => j.id === row.job_id);
+          const meta = statusMeta(row.status);
+          const authLink = `https://sh-client-portal.vercel.app/#authorize=${row.auth_code}`;
+          return (
+            <div key={row.id} style={S.card}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ fontSize: 32, flexShrink: 0 }}>🖋️</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: BRAND.navy, wordBreak: "break-word" }}>{job?.customerName || "Unknown Client"}</div>
+                    <span style={S.badge(meta.bg, meta.text, meta.border)}>{meta.label}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>{job?.address || ""}</div>
+                  <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 4 }}>Created {fmtDate(row.created_at)}{row.sent_at ? ` · Sent ${fmtTs(row.sent_at)}` : ""}</div>
+                  {row.client_signed_at && <div style={{ fontSize: 11, color: "#15803D", marginTop: 2 }}>Signed {fmtTs(row.client_signed_at)} by {row.client_signature_name || "client"}</div>}
+                  {row.approved_at && <div style={{ fontSize: 11, color: "#15803D", marginTop: 2 }}>Approved {fmtTs(row.approved_at)} by {row.approved_by}</div>}
+
+                  <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                    <button onClick={() => window.open(authLink, "_blank")} style={{ background: BRAND.navy, border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>👁 Open Link</button>
+                    <button onClick={() => { setEmailModal(row); setEmailTo(row.client_email || job?.customerEmail || ""); }} style={{ background: "#0369A1", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>✉️ Email</button>
+                    <button onClick={() => { setSmsModal(row); setSmsTo(job?.customerCellPhone || job?.customerPhone || ""); }} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>💬 Text</button>
+                    {row.status === "signed" && canAdmin(user) && (
+                      <button onClick={() => approve(row)} disabled={busyId === row.id} style={{ background: "#15803D", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer", opacity: busyId === row.id ? 0.6 : 1 }}>
+                        {busyId === row.id ? "…" : "✓ Approve"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -24392,6 +24789,7 @@ export default function App() {
             {tab==="mileage"   && (() => { markFeatureSeen("mileage"); return <MileageTab user={user} jobs={jobs} autoStartTrip={quickAction === "startTrip"} onConsumeAutoStart={() => setQuickAction(null)} />; })()}
             {tab==="docs"      && <DocsTab user={user} jobs={jobs} isDesktopView={isDesktopView} />}
             {tab==="contracts" && <DocTypeTab user={user} jobs={jobs} docType="contract" title="Contracts" icon="📝" emptyMsg="No contracts yet. Create one from the Docs tab." onJobsChanged={loadJobs} />}
+            {tab==="workauths" && <WorkAuthorizationsTab user={user} jobs={jobs} onJobsChanged={loadJobs} />}
             {tab==="tasks"     && <MyTasksTab jobs={jobs} user={user} onRefresh={loadJobs} isDesktopView={isDesktopView} />}
             {tab==="leads"     && <LeadsTab user={user} isDesktopView={isDesktopView} />}
             {tab==="invoices"  && <DocTypeTab user={user} jobs={jobs} docType="invoice" title="Invoices" icon="💰" emptyMsg="No invoices yet. Upload one from the Docs tab." onJobsChanged={loadJobs} />}
