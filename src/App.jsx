@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-28c — Added Project Lead (single-person, distinct from crew) to Add Job + Job Detail Scheduling, selectable from the team roster; Estimates now auto-create a job (isEstimate: true) when generated for a brand-new prospect with no existing job picked, so it shows up in the Jobs view under Estimate instead of only existing as a document";
+const BUILD_STAMP = "2026-07-29a — Wrapped the main tab content area in AppErrorBoundary (it was previously unguarded). A crash while rendering any tab was unmounting the whole React tree, leaving only the raw page background visible (blank navy screen). Now a crash shows 'Something went wrong' + the actual error message + a Reload button, and the header/nav stays alive.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -24378,6 +24378,7 @@ export default function App() {
             <button style={S.btn("primary")} onClick={loadJobs}>Retry</button>
           </div>
         ) : (
+          <AppErrorBoundary>
           <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} onCheckScheduleConflict={brCheckScheduleConflict} />}
@@ -24399,6 +24400,7 @@ export default function App() {
             {tab==="admin"     && <AdminTab user={user} onShowPolicy={() => setShowPolicyModal(true)} />}
             {tab==="companyinfo" && <CompanyInfoTab user={user} />}
           </div>
+          </AppErrorBoundary>
         )}
       </div>
     </div>
