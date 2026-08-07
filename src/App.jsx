@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-phase2e — Phone widths always use mobile shell; original-style top scrolling navigation shows every permitted tab; App Hub flow restored; blue header/footer, watermark and original Ask Erik preserved.";
+const BUILD_STAMP = "2026-08-07-phase2f — Supplied badge on login; supplied horizontal logo enlarged in mobile/desktop header; desktop badge at sidebar bottom; mobile nav circles; Quick Actions on mobile; blue outlines; centered popups/notifications; App Hub blueprint/login-theme restyle; Claude features preserved.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -582,7 +582,7 @@ const BRAND = {
   gold:    "#BFD1EC",
   white:   "#FFFFFF",
   offWhite:"#F6F8FC",
-  border:  "#DCE4EF",
+  border:  "#B7CDEE",
   text:    "#17345F",
   muted:   "#66768D",
 };
@@ -1819,8 +1819,8 @@ function CompanyPolicyModal({ open, onClose, user }) {
   if (!open) return null;
   const sections = policy?.content ? Object.values(policy.content) : [];
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:8000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
-      <div style={{ background:"#0F2340", borderRadius:"20px 20px 0 0", width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto", padding:"20px 16px 32px" }} onClick={e => e.stopPropagation()}>
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:8000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={onClose}>
+      <div style={{ background:"#0F2340", borderRadius:20, width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto", padding:"20px 16px 32px" }} onClick={e => e.stopPropagation()}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <div>
             <h2 style={{ color:"#BFD1EC", fontSize:18, fontWeight:700, margin:0 }}>📋 Company Policy</h2>
@@ -2626,6 +2626,16 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
         </section>
       </div>
 
+      <section className="sh-quick-panel">
+        <div className="sh-panel-head"><strong>Quick Actions</strong></div>
+        <div className="sh-quick-grid">
+          {canSubmitJobs(user) && <button onClick={() => onSelect("submit")}><span>{TabIcons.submit || TabIcons.jobs}</span><small>New Job</small></button>}
+          <button onClick={() => onSelect("tasks")}><span>{TabIcons.tasks}</span><small>New Task</small></button>
+          <button onClick={() => onQuickAction("addReceipt")}><span>{TabIcons.receipts}</span><small>Add Receipt</small></button>
+          <button onClick={() => onQuickAction("startTrip")}><span>{TabIcons.mileage}</span><small>Log Mileage</small></button>
+        </div>
+      </section>
+
     </div>
   );
 }
@@ -2633,9 +2643,6 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
 function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
   return (
     <aside className="sh-sidebar">
-      <div className="sh-sidebar-brand">
-        <img src="/sh-services-logo.png" alt="S&H Services" />
-      </div>
       <nav className="sh-sidebar-nav">
         {tabs.map(t => {
           const active = activeTab === t.id;
@@ -2650,6 +2657,9 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
           );
         })}
       </nav>
+      <div className="sh-sidebar-badge">
+        <img src="/restoredright-badge.png" alt="S&H RestoredRight System" />
+      </div>
     </aside>
   );
 }
@@ -2872,8 +2882,8 @@ function QuickActionsPanel({ user, jobs, onClose, onNavigate }) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60, display: "flex", alignItems: "flex-end" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: BRAND.offWhite, borderTopLeftRadius: 20, borderTopRightRadius: 20, width: "100%", maxWidth: 520, margin: "0 auto", padding: 20, paddingBottom: 28, maxHeight: "85vh", overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: BRAND.offWhite, borderRadius: 18, width: "100%", maxWidth: 520, margin: "0 auto", padding: 20, maxHeight: "85vh", overflowY: "auto", border: `1px solid ${BRAND.border}`, boxShadow: "0 16px 50px rgba(0,0,0,.28)" }}>
         {toast && <Toast msg={toast.msg} ok={toast.ok} />}
         <div style={{ width: 40, height: 4, background: BRAND.border, borderRadius: 99, margin: "0 auto 16px" }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -2928,7 +2938,7 @@ function QuickActionsPanel({ user, jobs, onClose, onNavigate }) {
 
 function Toast({ msg, ok = true }) {
   return (
-    <div style={{ position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)", background: ok ? BRAND.navy : "#DC2626", color: BRAND.white, borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 700, zIndex: 100, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.2)", border: `1px solid ${ok ? BRAND.gold : "#FF6B6B"}` }}>
+    <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: ok ? BRAND.navy : "#DC2626", color: BRAND.white, borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 700, zIndex: 100, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.2)", border: `1px solid ${ok ? BRAND.gold : "#FF6B6B"}` }}>
       {ok ? "✓ " : "✗ "}{msg}
     </div>
   );
@@ -3445,7 +3455,7 @@ function LoginScreen({ onLogin }) {
     .rr-login-bg{position:absolute;inset:0;background-image:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.88)),url('/blueprint-house.jpg');background-size:cover;background-position:center;opacity:.92}
     .rr-login-inner{position:relative;z-index:1;width:min(100%,430px)}
     .rr-brand{text-align:center;margin-bottom:15px}
-    .rr-logo{display:block;width:min(245px,70vw);height:auto;margin:0 auto 2px;filter:drop-shadow(0 5px 12px rgba(13,59,128,.06))}
+    .rr-logo{display:block;width:min(300px,78vw);max-height:310px;object-fit:contain;height:auto;margin:0 auto 2px;filter:drop-shadow(0 5px 12px rgba(13,59,128,.06))}
     .rr-tagline{font-family:"Segoe Script","Brush Script MT",cursive;color:#0d3b80;font-size:34px;font-weight:600;line-height:1;transform:rotate(-2deg);margin-top:-1px}
     .rr-card{background:rgba(255,255,255,.96);border:1px solid rgba(13,59,128,.12);border-radius:15px;padding:20px;box-shadow:0 18px 52px rgba(13,59,128,.13);backdrop-filter:blur(9px)}
     .rr-field{margin-bottom:13px}.rr-label{display:block;font-size:11px;font-weight:800;color:#17345f;margin:0 0 6px}
@@ -3460,7 +3470,7 @@ function LoginScreen({ onLogin }) {
     .rr-benefit{padding:13px 8px 12px;min-height:108px;text-align:center;display:flex;align-items:center;flex-direction:column}.rr-benefit+.rr-benefit{border-left:1px solid rgba(13,59,128,.09)}.rr-benefit-icon{width:31px;height:31px;border-radius:50%;border:1.5px solid #0d3b80;color:#0d3b80;display:grid;place-items:center;font-size:15px;margin-bottom:7px}.rr-benefit strong{font-size:9.5px;color:#0d3b80;margin-bottom:4px}.rr-benefit span{font-size:8.5px;color:#66768d;line-height:1.3}
     .rr-secure{margin-top:13px;background:linear-gradient(90deg,#0d3b80,#1456b8);border-radius:0 0 13px 13px;color:#fff;text-align:center;padding:10px 13px;box-shadow:0 8px 18px rgba(13,59,128,.14)}.rr-secure div{font-size:8.5px;font-weight:850;letter-spacing:.045em}.rr-secure span{display:block;font-size:8px;opacity:.83;font-style:italic;margin-top:3px}
     .rr-setup-title{text-align:center;color:#0d3b80;font-size:19px;font-weight:850;margin-bottom:5px}.rr-setup-sub{text-align:center;color:#66768d;font-size:12px;line-height:1.45;margin:0 auto 17px;max-width:310px}.rr-back{display:block;margin:12px auto 0;border:0;background:transparent;color:#66768d;font-size:12px;font-weight:700;cursor:pointer}
-    @media(max-width:600px){.rr-login{align-items:flex-start;padding:calc(env(safe-area-inset-top,0px) + 24px) 14px calc(env(safe-area-inset-bottom,0px) + 24px)}.rr-login-inner{width:min(100%,360px)}.rr-logo{width:min(205px,60vw)}.rr-tagline{font-size:25px}.rr-card{padding:16px;border-radius:13px}.rr-benefits{display:none}.rr-secure{border-radius:10px}.rr-login-bg{background-position:center top}}
+    @media(max-width:600px){.rr-login{align-items:flex-start;padding:calc(env(safe-area-inset-top,0px) + 24px) 14px calc(env(safe-area-inset-bottom,0px) + 24px)}.rr-login-inner{width:min(100%,360px)}.rr-logo{width:min(245px,68vw);max-height:250px}.rr-tagline{font-size:25px}.rr-card{padding:16px;border-radius:13px}.rr-benefits{display:none}.rr-secure{border-radius:10px}.rr-login-bg{background-position:center top}}
   `;
 
   if (pendingUser && setupStage) {
@@ -3470,7 +3480,7 @@ function LoginScreen({ onLogin }) {
         <div className="rr-login-bg" aria-hidden="true" />
         <div className="rr-login-inner">
           <div className="rr-brand">
-            <img className="rr-logo" src="/sh-services-logo.png" alt="S&H Services" />
+            <img className="rr-logo" src="/restoredright-badge.png" alt="S&H RestoredRight System" />
             <div className="rr-tagline">Restoration Done Right!</div>
           </div>
           <div className="rr-card">
@@ -3498,7 +3508,7 @@ function LoginScreen({ onLogin }) {
       <div className="rr-login-bg" aria-hidden="true" />
       <div className="rr-login-inner">
         <div className="rr-brand">
-          <img className="rr-logo" src="/sh-services-logo.png" alt="S&H Services" />
+          <img className="rr-logo" src="/restoredright-badge.png" alt="S&H RestoredRight System" />
           <div className="rr-tagline">Restoration Done Right!</div>
         </div>
 
@@ -8739,9 +8749,9 @@ Then describe ONLY the deck additions: shape, approximate size, ${selectedMateri
 
       {/* ── TimberTech Material Picker Modal ── */}
       {showMaterialPicker && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", zIndex:600, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
           onClick={() => setShowMaterialPicker(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:"#1B3A6B", borderRadius:"20px 20px 0 0", width:"100%", maxHeight:"80vh", display:"flex", flexDirection:"column", boxShadow:"0 -8px 40px rgba(0,0,0,0.5)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#1B3A6B", borderRadius:20, width:"100%", maxHeight:"80vh", display:"flex", flexDirection:"column", boxShadow:"0 -8px 40px rgba(0,0,0,0.5)" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px 10px", borderBottom:"1px solid rgba(255,255,255,0.15)" }}>
               <div>
                 <div style={{ fontSize:15, fontWeight:800, color:"#fff" }}>🎨 TimberTech Colors</div>
@@ -10120,13 +10130,13 @@ Return ONLY the prompt, nothing else.` }
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:500,
-      display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", width:"100%",
+      display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:"#fff", borderRadius:20, width:"100%",
         maxWidth:520, maxHeight:"92vh", display:"flex", flexDirection:"column" }}>
 
         {/* Mask drawing overlay */}
         {paintMaskMode && photo && (
-          <div style={{ position:"absolute", inset:0, zIndex:50, display:"flex", flexDirection:"column", borderRadius:"20px 20px 0 0", overflow:"hidden" }}>
+          <div style={{ position:"absolute", inset:0, zIndex:50, display:"flex", flexDirection:"column", borderRadius:20, overflow:"hidden" }}>
             <div style={{ background:"rgba(217,119,6,0.95)", padding:"8px 12px", display:"flex", alignItems:"center", gap:8 }}>
               <div style={{ fontSize:11, fontWeight:700, color:"#fff", flex:1 }}>
                 🖌️ Paint over the {surface} you want to change
@@ -24782,23 +24792,26 @@ export default function App() {
           }
           .desktop .sh-main-workspace{flex:1;max-width:1400px;margin:0 auto;border-right:1px solid #e0e7f0}
           .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:68px}
-          .sh-sidebar{width:225px;background:linear-gradient(180deg,#0d3b80,#082b60);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:4px 0 20px rgba(8,43,96,.12)}
+          .sh-sidebar{width:240px;background:linear-gradient(180deg,#0d3b80,#082b60);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:4px 0 20px rgba(8,43,96,.12)}
           .sh-sidebar-brand{height:112px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center}
           .sh-sidebar-brand img{width:185px;max-height:82px;object-fit:contain}
-          .sh-sidebar-nav{padding:10px 8px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
+          .sh-sidebar-nav{padding:18px 10px 10px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;flex:1}
           .sh-side-item{position:relative;border:0;background:transparent;color:rgba(255,255,255,.82);border-radius:8px;padding:9px 12px;display:flex;align-items:center;gap:9px;font-size:11px;font-weight:600;text-align:left;cursor:pointer}
           .sh-side-item:hover{background:rgba(255,255,255,.08);color:#fff}
           .sh-side-item.active{background:#fff;color:#0d3b80;box-shadow:0 3px 10px rgba(0,0,0,.12)}
           .sh-side-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
           .sh-side-icon svg{width:18px;height:18px}
           .sh-side-item i{margin-left:auto;background:#dc2626;color:#fff;border-radius:99px;font-size:8px;font-style:normal;min-width:15px;height:15px;display:grid;place-items:center}
-          .sh-topbar{height:70px;background:linear-gradient(90deg,#0D3B80,#1456B8);border-bottom:1px solid rgba(255,255,255,.16);display:flex;align-items:center;gap:18px;padding:0 18px;flex-shrink:0;position:relative;z-index:40}
-          .sh-mobile-brand{display:none;align-items:center}
+          .sh-sidebar-badge{margin-top:auto;padding:18px 18px 24px;border-top:1px solid rgba(255,255,255,.12);display:flex;justify-content:center}
+          .sh-sidebar-badge img{width:190px;max-height:225px;object-fit:contain;filter:drop-shadow(0 5px 10px rgba(0,0,0,.18))}
+
+          .sh-topbar{height:94px;background:linear-gradient(90deg,#0D3B80,#1456B8);border-bottom:1px solid rgba(255,255,255,.16);display:flex;align-items:center;gap:18px;padding:0 18px;flex-shrink:0;position:relative;z-index:40}
+          .sh-mobile-brand{display:flex;align-items:center;width:330px;flex-shrink:0}.sh-mobile-brand img{width:310px;max-height:82px;object-fit:contain;object-position:left center}
           .sh-search-wrap{position:relative;flex:1;max-width:480px}
           .sh-search-wrap>span{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#8a98ac;font-size:16px}
-          .sh-search-wrap input{width:100%;height:38px;border:1px solid #dce4ef;border-radius:8px;padding:0 12px 0 34px;background:#fbfcfe;color:#17345f;outline:none;font-size:12px}
+          .sh-search-wrap input{width:100%;height:38px;border:1px solid #B7CDEE;border-radius:8px;padding:0 12px 0 34px;background:#fbfcfe;color:#17345f;outline:none;font-size:12px}
           .sh-search-wrap input:focus{border-color:#1456b8;box-shadow:0 0 0 3px rgba(20,86,184,.09)}
-          .sh-search-results{position:absolute;top:43px;left:0;right:0;background:#fff;border:1px solid #dce4ef;border-radius:10px;box-shadow:0 12px 28px rgba(13,59,128,.15);overflow:hidden;z-index:80}
+          .sh-search-results{position:absolute;top:43px;left:0;right:0;background:#fff;border:1px solid #B7CDEE;border-radius:10px;box-shadow:0 12px 28px rgba(13,59,128,.15);overflow:hidden;z-index:80}
           .sh-search-results button{width:100%;border:0;border-bottom:1px solid #edf1f6;background:#fff;text-align:left;padding:9px 11px;display:flex;flex-direction:column;cursor:pointer}
           .sh-search-results button:last-child{border-bottom:0}.sh-search-results button:hover{background:#f5f8fc}
           .sh-search-results strong{font-size:11px;color:#17345f}.sh-search-results small{font-size:9px;color:#66768d;margin-top:2px}
@@ -24817,19 +24830,27 @@ export default function App() {
           .sh-dash-actions{display:flex;gap:8px}.sh-action-primary,.sh-action-secondary{height:34px;border-radius:7px;padding:0 13px;font-size:10px;font-weight:750;cursor:pointer}
           .sh-action-primary{border:0;background:#0d3b80;color:#fff}.sh-action-secondary{border:1px solid #cfd9e8;background:#fff;color:#0d3b80}
           .sh-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
-          .sh-metric-card{min-height:76px;background:#fff;border:1px solid #dce4ef;border-radius:9px;padding:10px;box-shadow:0 2px 8px rgba(13,59,128,.055);display:grid;grid-template-columns:34px auto 1fr;align-items:center;gap:8px;text-align:left;cursor:pointer}
+          .sh-metric-card{min-height:76px;background:#fff;border:1px solid #9FBEEC;border-radius:9px;padding:10px;box-shadow:0 2px 8px rgba(13,59,128,.055);display:grid;grid-template-columns:34px auto 1fr;align-items:center;gap:8px;text-align:left;cursor:pointer}
           .sh-metric-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center}.sh-metric-icon span{width:18px;height:18px;display:block}
           .sh-metric-number{font-size:18px;font-weight:800;color:#17345f}.sh-metric-copy{display:flex;flex-direction:column}.sh-metric-copy strong{font-size:9px}.sh-metric-copy small{font-size:7.5px;color:#66768d;margin-top:2px;line-height:1.2}
           .sh-dash-columns{display:grid;grid-template-columns:1.05fr 1.1fr .95fr;gap:10px}
-          .sh-panel{background:#fff;border:1px solid #dce4ef;border-radius:9px;box-shadow:0 2px 8px rgba(13,59,128,.045);overflow:hidden;min-width:0}
+          .sh-panel{background:#fff;border:1px solid #9FBEEC;border-radius:9px;box-shadow:0 2px 8px rgba(13,59,128,.045);overflow:hidden;min-width:0}
           .sh-panel-head{height:38px;padding:0 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6ebf2}.sh-panel-head strong{font-size:10px;color:#17345f}.sh-panel-head button{border:0;background:transparent;color:#1456b8;font-size:8px;font-weight:700;cursor:pointer}
           .sh-panel-body{padding:4px 7px 7px}
-          .sh-list-row,.sh-job-row,.sh-schedule-row{width:100%;border:0;background:#fff;border-bottom:1px solid #edf1f6;padding:8px 5px;display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.sh-list-row:last-child,.sh-job-row:last-child,.sh-schedule-row:last-child{border-bottom:0}
+          .sh-list-row,.sh-job-row,.sh-schedule-row{width:100%;border:1px solid #D0DEF2;background:#fff;border-radius:7px;margin:5px 0;padding:8px 7px;display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.sh-list-row:last-child,.sh-job-row:last-child,.sh-schedule-row:last-child{border-bottom:1px solid #D0DEF2}
           .sh-list-row:hover,.sh-job-row:hover,.sh-schedule-row:hover{background:#f9fbfd}
           .sh-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}.sh-row-main{min-width:0;flex:1;display:flex;flex-direction:column}.sh-row-main strong{font-size:9px;color:#17345f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sh-row-main small{font-size:7.5px;color:#66768d;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
           .sh-priority{font-size:7px;font-weight:700;border-radius:5px;padding:3px 5px}.sh-status-pill{font-size:7px;font-weight:700;border:1px solid;border-radius:5px;padding:3px 5px;white-space:nowrap}
           .sh-schedule-date{width:38px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:8px;color:#0d3b80}.sh-schedule-date small{font-size:7px;color:#66768d;margin-top:2px}
           .sh-empty{font-size:9px;color:#8a98ac;text-align:center;padding:22px 8px}
+          .sh-quick-panel{margin-top:10px;background:rgba(255,255,255,.94);border:1px solid #9FBEEC;border-radius:9px;box-shadow:0 2px 8px rgba(13,59,128,.045);overflow:hidden}
+          .sh-quick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding:10px}
+          .sh-quick-grid button{min-height:82px;border:1px solid #B7CDEE;border-radius:9px;background:#fff;color:#0D3B80;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+          .sh-quick-grid button:hover{background:#F2F7FF;border-color:#7FA6E2}
+          .sh-quick-grid button>span{width:34px;height:34px;border-radius:50%;background:#EFF5FD;border:1px solid #B7CDEE;display:flex;align-items:center;justify-content:center}
+          .sh-quick-grid button svg{width:21px;height:21px}
+          .sh-quick-grid button small{font-size:8px;font-weight:700}
+
           
           
           .sh-mobile-topnav{
@@ -24837,7 +24858,7 @@ export default function App() {
             background:#0D3B80;
             border-top:1px solid rgba(255,255,255,.10);
             border-bottom:1px solid rgba(255,255,255,.20);
-            height:58px;
+            height:70px;
             flex-shrink:0;
             z-index:80;
             overflow:hidden;
@@ -24855,30 +24876,14 @@ export default function App() {
           }
           .sh-mobile-topnav-scroll::-webkit-scrollbar{display:none}
           .sh-mobile-topnav button{
-            flex:0 0 auto;
-            min-width:67px;
-            height:48px;
-            border:0;
-            border-radius:7px;
-            background:transparent;
-            color:rgba(255,255,255,.80);
-            display:flex;
-            flex-direction:column;
-            align-items:center;
-            justify-content:center;
-            gap:3px;
-            position:relative;
-            padding:3px 7px;
-            cursor:pointer;
+            flex:0 0 auto;min-width:70px;height:58px;border:0;background:transparent;color:rgba(255,255,255,.88);
+            display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative;padding:2px 7px;cursor:pointer;
           }
-          .sh-mobile-topnav button>span{width:18px;height:18px;display:flex;align-items:center;justify-content:center}
-          .sh-mobile-topnav svg{width:18px;height:18px}
+          .sh-mobile-topnav button>span{width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.78);display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.05)}
+          .sh-mobile-topnav svg{width:19px;height:19px}
           .sh-mobile-topnav small{font-size:7.5px;font-weight:650;white-space:nowrap}
-          .sh-mobile-topnav button.active{
-            background:#fff;
-            color:#0D3B80;
-            box-shadow:0 2px 7px rgba(0,0,0,.13);
-          }
+          .sh-mobile-topnav button.active{background:transparent;color:#fff;box-shadow:none}
+          .sh-mobile-topnav button.active>span{background:#fff;color:#0D3B80;border-color:#fff;box-shadow:0 2px 7px rgba(0,0,0,.15)}
           .sh-mobile-topnav button i{
             position:absolute;
             top:2px;
@@ -24898,15 +24903,34 @@ export default function App() {
           .sh-brand-footer.mobile{min-height:42px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));font-size:7px}
           .sh-brand-footer span:nth-child(2){font-weight:700}
           .sh-brand-footer span:nth-child(3){font-family:"Segoe Script","Brush Script MT",cursive;font-size:10px}
+          .sh-apphub-theme{
+            min-height:100%;
+            background:
+              linear-gradient(rgba(247,250,255,.88),rgba(247,250,255,.88)),
+              url("/blueprint-house.jpg") center center / cover no-repeat;
+            color:#17345F;
+          }
+          .sh-apphub-theme button,
+          .sh-apphub-theme a{
+            color:#0D3B80;
+          }
+          .sh-apphub-theme button{
+            border-color:#9FBEEC!important;
+          }
+          .sh-apphub-theme .sh-hub-brand-button{
+            background:linear-gradient(90deg,#0D3B80,#1456B8)!important;
+            color:#fff!important;
+          }
+
           .sh-more-backdrop{position:fixed;inset:0;background:rgba(8,43,96,.34);z-index:180;display:flex;align-items:flex-end;justify-content:center}
           .sh-more-sheet{width:min(100%,430px);max-height:76vh;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 30px rgba(13,59,128,.18);overflow-y:auto}
           .sh-more-handle{width:38px;height:4px;border-radius:99px;background:#d6dee9;margin:3px auto 9px}.sh-more-title{display:flex;align-items:center;justify-content:space-between;padding:2px 3px 10px}.sh-more-title strong{font-size:16px;color:#0d3b80}.sh-more-title button{border:0;background:#f1f5f9;width:28px;height:28px;border-radius:50%;font-size:17px}
-          .sh-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sh-more-grid button{border:1px solid #dce4ef;background:#fff;border-radius:10px;min-height:76px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#0d3b80}.sh-more-grid button.active{background:#eff6ff;border-color:#93c5fd}.sh-more-grid button>span{width:22px;height:22px;display:block}.sh-more-grid svg{width:22px;height:22px}.sh-more-grid small{font-size:8px;font-weight:700;text-align:center}
+          .sh-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sh-more-grid button{border:1px solid #B7CDEE;background:#fff;border-radius:10px;min-height:76px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#0d3b80}.sh-more-grid button.active{background:#eff6ff;border-color:#93c5fd}.sh-more-grid button>span{width:22px;height:22px;display:block}.sh-more-grid svg{width:22px;height:22px}.sh-more-grid small{font-size:8px;font-weight:700;text-align:center}
           @media(max-width:767px){
             .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0}
-            .sh-topbar{height:58px;padding:0 10px;gap:7px;background:linear-gradient(90deg,#0D3B80,#1456B8)}
-            .sh-mobile-brand{display:flex;align-items:center;width:124px}
-            .sh-mobile-brand img{width:118px;max-height:48px;object-fit:contain}
+            .sh-topbar{height:76px;padding:0 10px;gap:7px;background:linear-gradient(90deg,#0D3B80,#1456B8)}
+            .sh-mobile-brand{display:flex;align-items:center;width:190px;flex-shrink:1}
+            .sh-mobile-brand img{width:182px;max-height:62px;object-fit:contain;object-position:left center}
             .sh-search-wrap{display:none}
             .sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}
             .sh-user-chip{border-left:0;padding-left:0}
@@ -24925,6 +24949,7 @@ export default function App() {
             .sh-metric-copy strong{font-size:8px}
             .sh-metric-copy small{font-size:6.8px}
             .sh-dash-columns{grid-template-columns:1fr;gap:8px}
+            .sh-quick-panel{margin-top:9px}.sh-quick-grid{grid-template-columns:repeat(4,1fr);gap:5px;padding:8px 6px}.sh-quick-grid button{min-height:76px;padding:5px 2px}.sh-quick-grid button>span{width:31px;height:31px}.sh-quick-grid button small{font-size:7px}
             .sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}
             .sh-panel-head{height:34px}
             .sh-list-row{padding:8px 5px}
@@ -24954,7 +24979,7 @@ export default function App() {
 
         {/* ── Install App banner ── */}
         {showInstallBanner && !showIOSInstructions && (
-          <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 200, padding: "12px 14px", background: BRAND.navy, borderTop: `2px solid ${BRAND.gold}`, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -4px 16px rgba(0,0,0,0.25)" }}>
+          <div style={{ position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: "min(92vw,460px)", zIndex: 200, padding: "14px 16px", background: BRAND.navy, border: `1px solid ${BRAND.gold}`, borderRadius: 16, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 16px 40px rgba(0,0,0,0.30)" }}>
             <img src={`data:image/png;base64,${LOGO_B64}`} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: "contain", background: "#fff", padding: 3, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Install S&H RestoredRight</div>
@@ -25221,7 +25246,7 @@ export default function App() {
         {/* S&H redesigned application shell */}
         <div className="sh-topbar">
           <div className="sh-mobile-brand">
-            <img src="/sh-services-logo.png" alt="S&H Services" />
+            <img src="/sh-header-logo.png" alt="S&H Services — Simple | Honest" />
           </div>
 
           <div className="sh-search-wrap">
