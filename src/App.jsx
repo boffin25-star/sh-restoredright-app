@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-phase2 — New client-portal-style dashboard shell: desktop sidebar, responsive top bar, mobile bottom nav + More sheet, live dashboard cards, direct post-login Dashboard landing.";
+const BUILD_STAMP = "2026-08-07-phase2b — Restored original floating Ask Erik chatbot icon on every app screen, including Dashboard; mobile position clears bottom navigation.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -25140,13 +25140,30 @@ export default function App() {
         {showChangePassword && <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />}
 
         {/* Floating chatbot button — no circle, just the Ask Erik character, enlarged */}
-        {!showChatbot && tab !== "home" && (
-          <button onClick={() => setShowChatbot(true)} style={{
-            position: "absolute", bottom: isDesktopView ? 18 : 76, right: 10, width: 78, height: 78,
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            zIndex: 20, filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.28))",
-          }} title="Help & Assistant">
-            <img src={`data:image/png;base64,${CHATBOT_ICON_B64}`} alt="Help" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        {!showChatbot && (
+          <button
+            onClick={() => setShowChatbot(true)}
+            style={{
+              position: "absolute",
+              bottom: isDesktopView ? 12 : 72,
+              right: 8,
+              width: 92,
+              height: 92,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              zIndex: 125,
+              filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.35))",
+            }}
+            title="Ask Erik"
+            aria-label="Ask Erik"
+          >
+            <img
+              src={`data:image/png;base64,${CHATBOT_ICON_B64}`}
+              alt="Ask Erik"
+              style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+            />
           </button>
         )}
 
