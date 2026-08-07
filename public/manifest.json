@@ -1,13 +1,13 @@
 {
-  "name": "S&H Services — Job Tracker",
-  "short_name": "S&H Jobs",
-  "description": "Job tracking, scheduling, leads, and cost calculator for S&H Services Spokane LLC",
+  "name": "S&H RestoredRight",
+  "short_name": "S&H",
+  "description": "S&H Services field operations and restoration management app",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#1B3A6B",
-  "theme_color": "#1B3A6B",
+  "background_color": "#FFFFFF",
+  "theme_color": "#0D3B80",
   "icons": [
     {
       "src": "/icons/icon-192.png",
