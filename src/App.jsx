@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-phase2c — Removed duplicate Erik Asks dashboard card; widened sidebar; enlarged S&H logo; added blueprint-house watermark across app screens; retained separate responsive desktop and mobile layouts.";
+const BUILD_STAMP = "2026-08-07-phase2e — Phone widths always use mobile shell; original-style top scrolling navigation shows every permitted tab; App Hub flow restored; blue header/footer, watermark and original Ask Erik preserved.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2654,27 +2654,39 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
   );
 }
 
-function SHMobileBottomNav({ activeTab, onSelect, onMore, taskBadge = 0 }) {
-  const items = [
-    { id:"home", label:"Home" },
-    { id:"tasks", label:"My Tasks" },
-    { id:"jobs", label:"Jobs" },
-    { id:"calendar", label:"Schedule" },
-  ];
+function SHMobileTopNav({ tabs, activeTab, onSelect, backupReminder = false }) {
   return (
-    <nav className="sh-bottom-nav">
-      {items.map(t => (
-        <button key={t.id} className={activeTab === t.id ? "active" : ""} onClick={() => onSelect(t.id)}>
-          <span>{TabIcons[t.id]}</span>
-          <small>{t.label}</small>
-          {t.id === "tasks" && taskBadge > 0 && <i>{taskBadge > 9 ? "9+" : taskBadge}</i>}
-        </button>
-      ))}
-      <button onClick={onMore}>
-        <span className="sh-more-dots">•••</span>
-        <small>More</small>
-      </button>
+    <nav className="sh-mobile-topnav" aria-label="Main navigation">
+      <div className="sh-mobile-topnav-scroll">
+        {tabs.map(t => {
+          const active = activeTab === t.id;
+          const svgIcon = TabIcons[t.id];
+          const badge = t.id === "backup" && backupReminder ? 1 : 0;
+          return (
+            <button
+              key={t.id}
+              className={active ? "active" : ""}
+              onClick={() => onSelect(t.id)}
+              title={t.label}
+            >
+              <span>{svgIcon || t.icon}</span>
+              <small>{t.label}</small>
+              {badge > 0 && <i>{badge}</i>}
+            </button>
+          );
+        })}
+      </div>
     </nav>
+  );
+}
+
+function SHBrandFooter({ isDesktopView }) {
+  return (
+    <footer className={isDesktopView ? "sh-brand-footer desktop" : "sh-brand-footer mobile"}>
+      <span>S&amp;H Services Spokane LLC</span>
+      <span>Simple | Honest</span>
+      <span>Restoration Done Right!</span>
+    </footer>
   );
 }
 
@@ -24243,7 +24255,7 @@ export default function App() {
   const [tab, setTab]     = useState("home");
   const [showMobileMore, setShowMobileMore] = useState(false);
   const [shellSearch, setShellSearch] = useState("");
-  const [showAppHub, setShowAppHub] = useState(false); // redesigned flow lands directly on Dashboard; App Hub remains available for later placement under More
+  const [showAppHub, setShowAppHub] = useState(true); // preserve Claude-built app selector flow after login
   // Set by the Home screen's Quick Actions panel for the two actions that
   // need a real tab to do safely (mileage's GPS tracking only exists while
   // that tab is mounted; receipts just reuses its own Add form) — the tab
@@ -24463,31 +24475,60 @@ export default function App() {
   function detectDefaultViewMode() {
     try { return window.innerWidth >= 768 ? "desktop" : "mobile"; } catch { return "mobile"; }
   }
+
+  const [viewportWidth, setViewportWidth] = useState(() => {
+    try { return window.innerWidth; } catch { return 430; }
+  });
+
   const [viewMode, setViewMode] = useState(() => {
     try {
+      if (window.innerWidth < 768) return "mobile";
       const saved = localStorage.getItem("sh_view_mode");
-      if (saved) return saved;
+      if (saved === "desktop" || saved === "mobile") return saved;
     } catch {}
     return detectDefaultViewMode();
   });
+
   function toggleViewMode() {
+    if (viewportWidth < 768) {
+      setViewMode("mobile");
+      try { localStorage.setItem("sh_view_mode", "mobile"); } catch {}
+      return;
+    }
     setViewMode(prev => {
       const next = prev === "mobile" ? "desktop" : "mobile";
       try { localStorage.setItem("sh_view_mode", next); } catch {}
       return next;
     });
   }
+
   useEffect(() => {
     function onResize() {
+      let width = 430;
+      try { width = window.innerWidth; } catch {}
+      setViewportWidth(width);
+
+      if (width < 768) {
+        setViewMode("mobile");
+        return;
+      }
+
       try {
-        if (localStorage.getItem("sh_view_mode")) return; // explicit choice already made — leave it alone
+        const saved = localStorage.getItem("sh_view_mode");
+        if (saved === "desktop" || saved === "mobile") {
+          setViewMode(saved);
+          return;
+        }
       } catch {}
-      setViewMode(detectDefaultViewMode());
+      setViewMode("desktop");
     }
+
+    onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const isDesktopView = viewMode === "desktop";
+
+  const isDesktopView = viewportWidth >= 768 && viewMode === "desktop";
 
   // ── Install-as-app prompt ──
   // Android/Chrome fires beforeinstallprompt — we capture it so we can show our
@@ -24751,8 +24792,8 @@ export default function App() {
           .sh-side-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
           .sh-side-icon svg{width:18px;height:18px}
           .sh-side-item i{margin-left:auto;background:#dc2626;color:#fff;border-radius:99px;font-size:8px;font-style:normal;min-width:15px;height:15px;display:grid;place-items:center}
-          .sh-topbar{height:68px;background:#fff;border-bottom:1px solid #dce4ef;display:flex;align-items:center;gap:18px;padding:0 18px;flex-shrink:0;position:relative;z-index:40}
-          .sh-mobile-brand{display:none}
+          .sh-topbar{height:70px;background:linear-gradient(90deg,#0D3B80,#1456B8);border-bottom:1px solid rgba(255,255,255,.16);display:flex;align-items:center;gap:18px;padding:0 18px;flex-shrink:0;position:relative;z-index:40}
+          .sh-mobile-brand{display:none;align-items:center}
           .sh-search-wrap{position:relative;flex:1;max-width:480px}
           .sh-search-wrap>span{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#8a98ac;font-size:16px}
           .sh-search-wrap input{width:100%;height:38px;border:1px solid #dce4ef;border-radius:8px;padding:0 12px 0 34px;background:#fbfcfe;color:#17345f;outline:none;font-size:12px}
@@ -24761,13 +24802,13 @@ export default function App() {
           .sh-search-results button{width:100%;border:0;border-bottom:1px solid #edf1f6;background:#fff;text-align:left;padding:9px 11px;display:flex;flex-direction:column;cursor:pointer}
           .sh-search-results button:last-child{border-bottom:0}.sh-search-results button:hover{background:#f5f8fc}
           .sh-search-results strong{font-size:11px;color:#17345f}.sh-search-results small{font-size:9px;color:#66768d;margin-top:2px}
-          .sh-top-actions{margin-left:auto;display:flex;align-items:center;gap:11px}
-          .sh-notif-button,.sh-erik-top{border:0;background:#fff;cursor:pointer;position:relative;display:flex;align-items:center;gap:5px;color:#17345f}
+          .sh-top-actions{margin-left:auto;display:flex;align-items:center;gap:11px;color:#fff}
+          .sh-notif-button,.sh-erik-top{border:0;background:transparent;cursor:pointer;position:relative;display:flex;align-items:center;gap:5px;color:#fff}
           .sh-notif-button i{position:absolute;right:-3px;top:-5px;background:#dc2626;color:#fff;border-radius:99px;font-size:8px;font-style:normal;min-width:14px;height:14px;display:grid;place-items:center}
-          .sh-erik-top span{width:29px;height:29px;border-radius:50%;background:#0d3b80;color:#fff;display:grid;place-items:center;font-weight:800}.sh-erik-top small{font-size:9px;font-weight:700}
-          .sh-user-chip{display:flex;align-items:center;gap:7px;border-left:1px solid #e4eaf2;padding-left:11px}
-          .sh-user-chip>div{display:flex;flex-direction:column;min-width:90px}.sh-user-chip strong{font-size:10px}.sh-user-chip small{font-size:8px;color:#66768d;margin-top:2px}
-          .sh-user-chip>button{border:0;background:transparent;color:#66768d;cursor:pointer}
+          .sh-erik-top span{width:29px;height:29px;border-radius:50%;background:#fff;color:#0d3b80;display:grid;place-items:center;font-weight:800}.sh-erik-top small{font-size:9px;font-weight:700;color:#fff}
+          .sh-user-chip{display:flex;align-items:center;gap:7px;border-left:1px solid rgba(255,255,255,.24);padding-left:11px;color:#fff}
+          .sh-user-chip>div{display:flex;flex-direction:column;min-width:90px}.sh-user-chip strong{font-size:10px;color:#fff}.sh-user-chip small{font-size:8px;color:rgba(255,255,255,.76);margin-top:2px}
+          .sh-user-chip>button{border:0;background:transparent;color:#fff;cursor:pointer}
           .sh-backup-chip{border:0;background:#fee2e2;color:#b91c1c;border-radius:7px;font-size:9px;font-weight:700;padding:6px 9px}
           .sh-dashboard{flex:1;overflow-y:auto;padding:18px;background:rgba(247,249,252,.82);backdrop-filter:blur(.4px)}
           .sh-dash-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;position:relative}
@@ -24790,20 +24831,105 @@ export default function App() {
           .sh-schedule-date{width:38px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:8px;color:#0d3b80}.sh-schedule-date small{font-size:7px;color:#66768d;margin-top:2px}
           .sh-empty{font-size:9px;color:#8a98ac;text-align:center;padding:22px 8px}
           
-          .sh-bottom-nav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(100%,430px);height:64px;background:#fff;border-top:1px solid #dce4ef;display:flex;z-index:120;padding-bottom:env(safe-area-inset-bottom)}
-          .sh-bottom-nav button{flex:1;border:0;background:#fff;color:#66768d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative}.sh-bottom-nav button>span{width:18px;height:18px;display:block}.sh-bottom-nav svg{width:18px;height:18px}.sh-bottom-nav small{font-size:7px;font-weight:650}.sh-bottom-nav button.active{color:#0d3b80}.sh-bottom-nav button i{position:absolute;top:7px;right:17%;background:#dc2626;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}.sh-more-dots{font-size:17px;line-height:12px;font-weight:800}
+          
+          .sh-mobile-topnav{
+            display:none;
+            background:#0D3B80;
+            border-top:1px solid rgba(255,255,255,.10);
+            border-bottom:1px solid rgba(255,255,255,.20);
+            height:58px;
+            flex-shrink:0;
+            z-index:80;
+            overflow:hidden;
+          }
+          .sh-mobile-topnav-scroll{
+            display:flex;
+            width:100%;
+            height:100%;
+            overflow-x:auto;
+            overflow-y:hidden;
+            -webkit-overflow-scrolling:touch;
+            scrollbar-width:none;
+            padding:4px 5px;
+            gap:3px;
+          }
+          .sh-mobile-topnav-scroll::-webkit-scrollbar{display:none}
+          .sh-mobile-topnav button{
+            flex:0 0 auto;
+            min-width:67px;
+            height:48px;
+            border:0;
+            border-radius:7px;
+            background:transparent;
+            color:rgba(255,255,255,.80);
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            gap:3px;
+            position:relative;
+            padding:3px 7px;
+            cursor:pointer;
+          }
+          .sh-mobile-topnav button>span{width:18px;height:18px;display:flex;align-items:center;justify-content:center}
+          .sh-mobile-topnav svg{width:18px;height:18px}
+          .sh-mobile-topnav small{font-size:7.5px;font-weight:650;white-space:nowrap}
+          .sh-mobile-topnav button.active{
+            background:#fff;
+            color:#0D3B80;
+            box-shadow:0 2px 7px rgba(0,0,0,.13);
+          }
+          .sh-mobile-topnav button i{
+            position:absolute;
+            top:2px;
+            right:6px;
+            background:#dc2626;
+            color:#fff;
+            border-radius:99px;
+            font-size:7px;
+            font-style:normal;
+            min-width:13px;
+            height:13px;
+            display:grid;
+            place-items:center;
+          }
+          .sh-brand-footer{background:linear-gradient(90deg,#0D3B80,#1456B8);color:#fff;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;text-align:center;flex-shrink:0;border-top:1px solid rgba(255,255,255,.14)}
+          .sh-brand-footer.desktop{min-height:34px;padding:7px 16px;font-size:8px}
+          .sh-brand-footer.mobile{min-height:42px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));font-size:7px}
+          .sh-brand-footer span:nth-child(2){font-weight:700}
+          .sh-brand-footer span:nth-child(3){font-family:"Segoe Script","Brush Script MT",cursive;font-size:10px}
           .sh-more-backdrop{position:fixed;inset:0;background:rgba(8,43,96,.34);z-index:180;display:flex;align-items:flex-end;justify-content:center}
           .sh-more-sheet{width:min(100%,430px);max-height:76vh;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 30px rgba(13,59,128,.18);overflow-y:auto}
           .sh-more-handle{width:38px;height:4px;border-radius:99px;background:#d6dee9;margin:3px auto 9px}.sh-more-title{display:flex;align-items:center;justify-content:space-between;padding:2px 3px 10px}.sh-more-title strong{font-size:16px;color:#0d3b80}.sh-more-title button{border:0;background:#f1f5f9;width:28px;height:28px;border-radius:50%;font-size:17px}
           .sh-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sh-more-grid button{border:1px solid #dce4ef;background:#fff;border-radius:10px;min-height:76px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#0d3b80}.sh-more-grid button.active{background:#eff6ff;border-color:#93c5fd}.sh-more-grid button>span{width:22px;height:22px;display:block}.sh-more-grid svg{width:22px;height:22px}.sh-more-grid small{font-size:8px;font-weight:700;text-align:center}
           @media(max-width:767px){
-            .sh-topbar{height:57px;padding:0 11px;gap:8px}.sh-mobile-brand{display:flex;align-items:center;width:112px}.sh-mobile-brand img{width:106px;max-height:46px;object-fit:contain}
-            .sh-search-wrap{display:none}.sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:7px}
-            .sh-dashboard{padding:12px 10px 18px}.sh-dash-hero{align-items:flex-start;margin-bottom:10px}.sh-dash-title{font-size:16px}.sh-dash-subtitle{font-size:8px}.sh-dash-actions{display:none}
+            .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0}
+            .sh-topbar{height:58px;padding:0 10px;gap:7px;background:linear-gradient(90deg,#0D3B80,#1456B8)}
+            .sh-mobile-brand{display:flex;align-items:center;width:124px}
+            .sh-mobile-brand img{width:118px;max-height:48px;object-fit:contain}
+            .sh-search-wrap{display:none}
+            .sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}
+            .sh-user-chip{border-left:0;padding-left:0}
+            .sh-top-actions{gap:7px}
+            .sh-mobile-topnav{display:block}
+            .sh-dashboard{padding:12px 10px 16px}
+            .sh-dash-hero{align-items:flex-start;margin-bottom:10px}
+            .sh-dash-title{font-size:16px}
+            .sh-dash-subtitle{font-size:8px}
+            .sh-dash-actions{display:none}
             .sh-dash-hero:after{font-size:34px;left:42%;top:-4px}
-            .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:7px}.sh-metric-card{min-height:66px;padding:8px;grid-template-columns:30px auto 1fr;gap:6px}.sh-metric-icon{width:30px;height:30px}.sh-metric-number{font-size:16px}.sh-metric-copy strong{font-size:8px}.sh-metric-copy small{font-size:6.8px}
-            .sh-dash-columns{grid-template-columns:1fr;gap:8px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:34px}.sh-list-row{padding:8px 5px}.sh-row-main strong{font-size:8.5px}.sh-row-main small{font-size:7px}
-            .sh-erik-card{display:none}
+            .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:7px}
+            .sh-metric-card{min-height:66px;padding:8px;grid-template-columns:30px auto 1fr;gap:6px}
+            .sh-metric-icon{width:30px;height:30px}
+            .sh-metric-number{font-size:16px}
+            .sh-metric-copy strong{font-size:8px}
+            .sh-metric-copy small{font-size:6.8px}
+            .sh-dash-columns{grid-template-columns:1fr;gap:8px}
+            .sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}
+            .sh-panel-head{height:34px}
+            .sh-list-row{padding:8px 5px}
+            .sh-row-main strong{font-size:8.5px}
+            .sh-row-main small{font-size:7px}
           }
         `}</style>
         <OfflineBanner />
@@ -25144,13 +25270,22 @@ export default function App() {
         </div>
         {showChangePassword && <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />}
 
+        {!isDesktopView && (
+          <SHMobileTopNav
+            tabs={tabs}
+            activeTab={tab}
+            onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }}
+            backupReminder={backupReminder}
+          />
+        )}
+
         {/* Floating chatbot button — no circle, just the Ask Erik character, enlarged */}
         {!showChatbot && (
           <button
             onClick={() => setShowChatbot(true)}
             style={{
               position: "absolute",
-              bottom: isDesktopView ? 12 : 72,
+              bottom: isDesktopView ? 42 : 52,
               right: 8,
               width: 92,
               height: 92,
@@ -25206,15 +25341,8 @@ export default function App() {
           </AppErrorBoundary>
         )}
 
-        {!isDesktopView && (
-          <SHMobileBottomNav
-            activeTab={tab}
-            onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }}
-            onMore={() => setShowMobileMore(true)}
-            taskBadge={(allNotifs.newTasks?.length || 0) + (allNotifs.followUps?.length || 0)}
-          />
-        )}
-        {showMobileMore && <SHMoreMenu tabs={tabs} activeTab={tab} onSelect={setTab} onClose={() => setShowMobileMore(false)} />}
+        
+        <SHBrandFooter isDesktopView={isDesktopView} />
       </div>
     </div>
     </UserCtx.Provider>
