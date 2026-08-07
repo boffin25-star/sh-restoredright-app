@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-07-29a — Wrapped the main tab content area in AppErrorBoundary (it was previously unguarded). A crash while rendering any tab was unmounting the whole React tree, leaving only the raw page background visible (blank navy screen). Now a crash shows 'Something went wrong' + the actual error message + a Reload button, and the header/nav stays alive.";
+const BUILD_STAMP = "2026-08-07a — S&H RestoredRight login redesign: blueprint-house background, branded login card, username/password sign-in, functional Remember Me session behavior, and preserved first-login password setup.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -3146,14 +3146,16 @@ class AppErrorBoundary extends React.Component {
 }
 
 function LoginScreen({ onLogin }) {
-  const [showPicker, setShowPicker] = useState(false);
-  const [picTick, setPicTick] = useState(0); // increments when profile pics load
-  const [pendingUser, setPendingUser] = useState(null); // user tapped, awaiting password
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+  const [pendingUser, setPendingUser] = useState(null);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+  const [codeNotice, setCodeNotice] = useState(false);
 
-  // First-login setup state (only shown when isFirstLogin/mustReset comes back true)
+  // First-login setup state (preserves the existing forced password reset flow).
   const [setupStage, setSetupStage] = useState(false);
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
@@ -3162,41 +3164,40 @@ function LoginScreen({ onLogin }) {
   const [setupError, setSetupError] = useState("");
   const [savingSetup, setSavingSetup] = useState(false);
 
-  // Load profile pics as soon as picker is shown
-  useEffect(() => {
-    if (showPicker) {
-      loadProfilePics().then(() => setPicTick(t => t + 1)).catch(() => {});
-      const handler = () => setPicTick(t => t + 1);
-      window.addEventListener("profilePicsLoaded", handler);
-      return () => window.removeEventListener("profilePicsLoaded", handler);
-    }
-  }, [showPicker]);
-
-  function pickUser(u) {
-    setPendingUser(u);
-    setPassword("");
-    setError("");
-    setSetupStage(false);
+  function resolveUser(value) {
+    const q = (value || "").trim().toLowerCase();
+    if (!q) return null;
+    const exact = SALES_USERS.find(u =>
+      String(u.id || "").toLowerCase() === q ||
+      String(u.name || "").toLowerCase() === q
+    );
+    if (exact) return exact;
+    const firstNameMatches = SALES_USERS.filter(u => String(u.name || "").split(" ")[0].toLowerCase() === q);
+    return firstNameMatches.length === 1 ? firstNameMatches[0] : null;
   }
 
-  async function submitPassword() {
+  async function submitPassword(event) {
+    event?.preventDefault?.();
+    setError("");
+    setCodeNotice(false);
+    const user = resolveUser(username);
+    if (!user) { setError("Enter a valid employee username or name."); return; }
     if (!password) { setError("Enter your password."); return; }
     setChecking(true);
-    setError("");
     try {
-      const result = await verifyPassword(pendingUser.id, password);
+      const result = await verifyPassword(user.id, password);
       if (!result.ok) {
         setError(result.reason === "wrong-password" ? "Incorrect password." : "Could not verify — try again.");
         setChecking(false);
         return;
       }
       if (result.mustReset || result.isFirstLogin) {
-        // Force a real password + quick contact info before letting them in
+        setPendingUser(user);
         setSetupStage(true);
         setChecking(false);
         return;
       }
-      onLogin(pendingUser);
+      onLogin(user, { remember: rememberMe });
     } catch (e) {
       setError("Could not reach the server: " + (e?.message?.slice(0,120) || "check your connection."));
     }
@@ -3207,191 +3208,122 @@ function LoginScreen({ onLogin }) {
     setSetupError("");
     if (newPw.length < 6) { setSetupError("New password must be at least 6 characters."); return; }
     if (newPw !== confirmPw) { setSetupError("Passwords don't match."); return; }
+    const empRecord = _employeeDirectory.find(e => e.id === pendingUser?.id);
+    const profileComplete = empRecord && empRecord.emergencyContactName && empRecord.address;
     if (!cellPhone.trim() && !profileComplete) { setSetupError("Please enter a cell phone number."); return; }
     setSavingSetup(true);
     try {
       await setUserPassword(pendingUser.id, newPw, false);
       await saveContactInfo(pendingUser.id, cellPhone.trim(), email.trim());
-      // Sync to contacts and employee record
       const emp = _employeeDirectory.find(e => e.id === pendingUser.id);
       if (emp) {
         await updateEmployee(pendingUser.id, { cellPhone: cellPhone.trim(), email: email.trim() }).catch(() => {});
         await upsertEmployeeContact({ ...emp, cellPhone: cellPhone.trim(), email: email.trim() }, pendingUser.name).catch(() => {});
       }
-      onLogin(pendingUser, { firstLogin: true });
+      onLogin(pendingUser, { firstLogin: true, remember: rememberMe });
     } catch (e) {
       setSetupError("Could not save: " + (e?.message?.slice(0,140) || "check your connection and try again."));
     }
     setSavingSetup(false);
   }
 
-  // Check if this employee already has a contact card with full info
   const empRecord = _employeeDirectory.find(e => e.id === pendingUser?.id);
   const profileComplete = empRecord && empRecord.emergencyContactName && empRecord.address;
 
-  if (!showPicker) {
-    return (
-      <div style={{ ...S.phone, justifyContent: "center", alignItems: "center", padding: "0 28px" }}>
-        <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: "100%", maxWidth: 420, marginBottom: 36 }} />
-        <button
-          onClick={() => setShowPicker(true)}
-          style={{
-            width: "100%", maxWidth: 320, padding: "15px 0", borderRadius: 12, border: "none",
-            background: BRAND.navy, color: BRAND.white, fontSize: 16, fontWeight: 800,
-            fontFamily: "inherit", cursor: "pointer", letterSpacing: 0.3,
-            boxShadow: "0 4px 16px rgba(27,58,107,0.35)",
-          }}
-        >
-          Login
-        </button>
-      </div>
-    );
-  }
+  const loginCss = `
+    .rr-login{min-height:100dvh;width:100%;position:relative;overflow:hidden;background:#f7faff;display:flex;align-items:center;justify-content:center;padding:34px 18px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17345f}
+    .rr-login-bg{position:absolute;inset:0;background-image:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.88)),url('/blueprint-house.jpg');background-size:cover;background-position:center;opacity:.92}
+    .rr-login-inner{position:relative;z-index:1;width:min(100%,430px)}
+    .rr-brand{text-align:center;margin-bottom:15px}
+    .rr-logo{display:block;width:min(245px,70vw);height:auto;margin:0 auto 2px;filter:drop-shadow(0 5px 12px rgba(13,59,128,.06))}
+    .rr-tagline{font-family:"Segoe Script","Brush Script MT",cursive;color:#0d3b80;font-size:34px;font-weight:600;line-height:1;transform:rotate(-2deg);margin-top:-1px}
+    .rr-card{background:rgba(255,255,255,.96);border:1px solid rgba(13,59,128,.12);border-radius:15px;padding:20px;box-shadow:0 18px 52px rgba(13,59,128,.13);backdrop-filter:blur(9px)}
+    .rr-field{margin-bottom:13px}.rr-label{display:block;font-size:11px;font-weight:800;color:#17345f;margin:0 0 6px}
+    .rr-input-wrap{position:relative}.rr-input{width:100%;height:44px;border:1px solid #dce5f0;border-radius:7px;background:#fff;color:#17345f;padding:0 12px;font-size:13px;outline:none;transition:.15s;border-box}
+    .rr-input:focus{border-color:#1e63d6;box-shadow:0 0 0 3px rgba(30,99,214,.11)}.rr-password{padding-right:44px}
+    .rr-eye{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:34px;height:34px;border:0;background:transparent;color:#0d3b80;cursor:pointer;font-size:17px}
+    .rr-options{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:3px 0 15px}.rr-remember{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:#17345f;cursor:pointer}.rr-remember input{width:15px;height:15px;accent-color:#0d3b80}
+    .rr-code{border:0;background:transparent;color:#1456b8;font-size:11px;font-weight:750;cursor:pointer;padding:3px}.rr-code:hover{text-decoration:underline}
+    .rr-alert{font-size:11.5px;line-height:1.35;border-radius:7px;padding:8px 10px;margin:-3px 0 11px}.rr-error{color:#a72f2f;background:#fff3f3;border:1px solid #ffd4d4}.rr-info{color:#37587e;background:#f2f7ff;border:1px solid #d7e6fb}
+    .rr-submit{width:100%;height:44px;border:0;border-radius:7px;background:linear-gradient(90deg,#0d3b80,#1456b8);color:#fff;font-size:13px;font-weight:850;letter-spacing:.035em;cursor:pointer;box-shadow:0 8px 18px rgba(13,59,128,.2)}.rr-submit:disabled{opacity:.62;cursor:default}
+    .rr-benefits{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);background:rgba(255,255,255,.93);border:1px solid rgba(13,59,128,.1);border-radius:14px;overflow:hidden;box-shadow:0 12px 34px rgba(13,59,128,.08)}
+    .rr-benefit{padding:13px 8px 12px;min-height:108px;text-align:center;display:flex;align-items:center;flex-direction:column}.rr-benefit+.rr-benefit{border-left:1px solid rgba(13,59,128,.09)}.rr-benefit-icon{width:31px;height:31px;border-radius:50%;border:1.5px solid #0d3b80;color:#0d3b80;display:grid;place-items:center;font-size:15px;margin-bottom:7px}.rr-benefit strong{font-size:9.5px;color:#0d3b80;margin-bottom:4px}.rr-benefit span{font-size:8.5px;color:#66768d;line-height:1.3}
+    .rr-secure{margin-top:13px;background:linear-gradient(90deg,#0d3b80,#1456b8);border-radius:0 0 13px 13px;color:#fff;text-align:center;padding:10px 13px;box-shadow:0 8px 18px rgba(13,59,128,.14)}.rr-secure div{font-size:8.5px;font-weight:850;letter-spacing:.045em}.rr-secure span{display:block;font-size:8px;opacity:.83;font-style:italic;margin-top:3px}
+    .rr-setup-title{text-align:center;color:#0d3b80;font-size:19px;font-weight:850;margin-bottom:5px}.rr-setup-sub{text-align:center;color:#66768d;font-size:12px;line-height:1.45;margin:0 auto 17px;max-width:310px}.rr-back{display:block;margin:12px auto 0;border:0;background:transparent;color:#66768d;font-size:12px;font-weight:700;cursor:pointer}
+    @media(max-width:600px){.rr-login{align-items:flex-start;padding:calc(env(safe-area-inset-top,0px) + 24px) 14px calc(env(safe-area-inset-bottom,0px) + 24px)}.rr-login-inner{width:min(100%,360px)}.rr-logo{width:min(205px,60vw)}.rr-tagline{font-size:25px}.rr-card{padding:16px;border-radius:13px}.rr-benefits{display:none}.rr-secure{border-radius:10px}.rr-login-bg{background-position:center top}}
+  `;
 
-  // First-login setup screen — real password + contact info
   if (pendingUser && setupStage) {
     return (
-      <div style={{ ...S.phone, padding: 0, background: BRAND.offWhite }}>
-        <div style={S.scroll}>
-          <div style={{ textAlign: "center", marginBottom: 20, marginTop: 4 }}>
-            <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 180, marginBottom: 10 }} />
-            <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy }}>Welcome, {pendingUser.name.split(" ")[0]}!</div>
-            <div style={{ fontSize: 12.5, color: BRAND.muted, marginTop: 4, maxWidth: 300, marginLeft: "auto", marginRight: "auto" }}>
-              {profileComplete
-                ? "Set a new password to continue — your profile info is already on file."
-                : "First time logging in — set your own password and add your contact info."}
-            </div>
+      <div className="rr-login">
+        <style>{loginCss}</style>
+        <div className="rr-login-bg" aria-hidden="true" />
+        <div className="rr-login-inner">
+          <div className="rr-brand">
+            <img className="rr-logo" src="/sh-services-logo.png" alt="S&H Services" />
+            <div className="rr-tagline">Restoration Done Right!</div>
           </div>
-
-          <div style={{ maxWidth: 340, margin: "0 auto", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy, marginBottom: 4 }}>New Password</div>
-              <input type="password" style={S.input} placeholder="At least 6 characters" value={newPw} onChange={e => setNewPw(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy, marginBottom: 4 }}>Confirm Password</div>
-              <input type="password" style={S.input} placeholder="Re-enter password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} />
-            </div>
-            {!profileComplete && (
-              <>
-                <div style={{ height: 6 }} />
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy, marginBottom: 4 }}>Cell Phone</div>
-                  <input type="tel" style={S.input} placeholder="(509) 555-0123" value={cellPhone} onChange={e => setCellPhone(e.target.value)} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy, marginBottom: 4 }}>Email (optional)</div>
-                  <input type="email" style={S.input} placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
-                </div>
-              </>
-            )}
-            {profileComplete && (
-              <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: "10px 14px", marginTop: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#15803D", marginBottom: 4 }}>✅ Profile already on file</div>
-                <div style={{ fontSize: 11, color: "#166534" }}>Your contact info, vehicle, and emergency contact are set. Just set your password to continue.</div>
-              </div>
-            )}
-
-            {setupError && <div style={{ color: "#C0392B", fontSize: 13, fontWeight: 600, textAlign: "center" }}>{setupError}</div>}
-
-            <button
-              onClick={submitSetup}
-              disabled={savingSetup}
-              style={{
-                marginTop: 8, width: "100%", padding: "14px 0", borderRadius: 12, border: "none",
-                background: BRAND.navy, color: BRAND.white, fontSize: 15, fontWeight: 800,
-                fontFamily: "inherit", cursor: savingSetup ? "default" : "pointer", opacity: savingSetup ? 0.6 : 1,
-              }}
-            >
-              {savingSetup ? "Saving…" : "Save & Continue"}
-            </button>
-            <button
-              onClick={() => { setPendingUser(null); setSetupStage(false); }}
-              style={{ background: "none", border: "none", color: BRAND.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 8 }}
-            >
-              ← Back
-            </button>
+          <div className="rr-card">
+            <div className="rr-setup-title">Welcome, {pendingUser.name.split(" ")[0]}!</div>
+            <div className="rr-setup-sub">{profileComplete ? "Set a new password to continue — your profile info is already on file." : "First time logging in — set your own password and add your contact info."}</div>
+            <div className="rr-field"><label className="rr-label">New Password</label><input className="rr-input" type="password" placeholder="At least 6 characters" value={newPw} onChange={e => setNewPw(e.target.value)} /></div>
+            <div className="rr-field"><label className="rr-label">Confirm Password</label><input className="rr-input" type="password" placeholder="Re-enter password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} /></div>
+            {!profileComplete && <>
+              <div className="rr-field"><label className="rr-label">Cell Phone</label><input className="rr-input" type="tel" placeholder="(509) 555-0123" value={cellPhone} onChange={e => setCellPhone(e.target.value)} /></div>
+              <div className="rr-field"><label className="rr-label">Email (optional)</label><input className="rr-input" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
+            </>}
+            {profileComplete && <div className="rr-alert rr-info">✓ Your contact information is already on file. Just set your password to continue.</div>}
+            {setupError && <div className="rr-alert rr-error">{setupError}</div>}
+            <button className="rr-submit" onClick={submitSetup} disabled={savingSetup}>{savingSetup ? "SAVING…" : "SAVE & CONTINUE"}</button>
+            <button className="rr-back" onClick={() => { setPendingUser(null); setSetupStage(false); setPassword(""); }}>← Back to sign in</button>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  // Password screen for the tapped user
-  if (pendingUser) {
-    return (
-      <div style={{ ...S.phone, justifyContent: "center", alignItems: "center", padding: "0 28px" }}>
-        {(() => { const pic = getProfilePic(pendingUser.id); return pic
-          ? <img src={pic} alt={pendingUser.name} style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: `3px solid ${BRAND.gold}`, marginBottom: 14 }} />
-          : <div style={{ width: 72, height: 72, borderRadius: "50%", background: BRAND.navy, color: BRAND.white, fontWeight: 800, fontSize: 26, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>{pendingUser.name[0]}</div>;
-        })()}
-        <div style={{ fontSize: 17, fontWeight: 800, color: BRAND.navy, marginBottom: 18 }}>{pendingUser.name}</div>
-        <input
-          type="password"
-          style={{ ...S.input, width: "100%", maxWidth: 320, marginBottom: 10, textAlign: "center", fontSize: 16 }}
-          placeholder="Password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && submitPassword()}
-          autoFocus
-        />
-        {error && <div style={{ color: "#C0392B", fontSize: 13, fontWeight: 600, marginBottom: 10, textAlign: "center" }}>{error}</div>}
-        <button
-          onClick={submitPassword}
-          disabled={checking}
-          style={{
-            width: "100%", maxWidth: 320, padding: "15px 0", borderRadius: 12, border: "none",
-            background: BRAND.navy, color: BRAND.white, fontSize: 16, fontWeight: 800,
-            fontFamily: "inherit", cursor: checking ? "default" : "pointer", opacity: checking ? 0.6 : 1,
-            boxShadow: "0 4px 16px rgba(27,58,107,0.35)", marginBottom: 10,
-          }}
-        >
-          {checking ? "Checking…" : "Log In"}
-        </button>
-        <button
-          onClick={() => setPendingUser(null)}
-          style={{ background: "none", border: "none", color: BRAND.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 8 }}
-        >
-          ← Not you?
-        </button>
       </div>
     );
   }
 
   return (
-    <div style={{ ...S.phone, padding: 0, background: BRAND.offWhite }}>
-      <div style={S.scroll}>
-        <div style={{ textAlign: "center", marginBottom: 24, marginTop: 4 }}>
-          <img src={`data:image/png;base64,${LOGO_WIDE_B64}`} alt="S&H Services" style={{ width: 220, marginBottom: 12 }} />
-          <div style={{ fontSize: 15, color: BRAND.muted, fontWeight: 600 }}>Who are you?</div>
+    <div className="rr-login">
+      <style>{loginCss}</style>
+      <div className="rr-login-bg" aria-hidden="true" />
+      <div className="rr-login-inner">
+        <div className="rr-brand">
+          <img className="rr-logo" src="/sh-services-logo.png" alt="S&H Services" />
+          <div className="rr-tagline">Restoration Done Right!</div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-          {SALES_USERS.map(u => {
-            const pic = getProfilePic(u.id);
-            return (
-              <button key={u.id} onClick={() => pickUser(u)} style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                background: BRAND.white, border: `1.5px solid ${BRAND.border}`, borderRadius: 14,
-                padding: "16px 8px 12px", cursor: "pointer", fontFamily: "inherit",
-                boxShadow: "0 1px 3px rgba(29,76,146,0.08)",
-              }}>
-                {pic
-                  ? <img src={pic} alt={u.name} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: `2px solid ${BRAND.gold}` }} />
-                  : <span style={{
-                      width: 52, height: 52, borderRadius: "50%", background: BRAND.navy, color: BRAND.white,
-                      fontWeight: 800, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>{u.name[0]}</span>
-                }
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: BRAND.navy, textAlign: "center", lineHeight: 1.2 }}>{u.name}</span>
-              </button>
-            );
-          })}
+        <form className="rr-card" onSubmit={submitPassword}>
+          <div className="rr-field">
+            <label className="rr-label" htmlFor="rr-username">Username</label>
+            <input id="rr-username" className="rr-input" value={username} onChange={e => { setUsername(e.target.value); setError(""); }} placeholder="Enter your username" autoComplete="username" list="rr-user-list" />
+            <datalist id="rr-user-list">{SALES_USERS.map(u => <option key={u.id} value={u.name} />)}</datalist>
+          </div>
+          <div className="rr-field">
+            <label className="rr-label" htmlFor="rr-password">Password</label>
+            <div className="rr-input-wrap">
+              <input id="rr-password" className="rr-input rr-password" type={showPassword ? "text" : "password"} value={password} onChange={e => { setPassword(e.target.value); setError(""); }} placeholder="Enter your password" autoComplete="current-password" />
+              <button className="rr-eye" type="button" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? "◉" : "○"}</button>
+            </div>
+          </div>
+
+          <div className="rr-options">
+            <label className="rr-remember"><input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} /><span>Remember me</span></label>
+            <button className="rr-code" type="button" onClick={() => { setCodeNotice(true); setError(""); }}>Send code</button>
+          </div>
+
+          {error && <div className="rr-alert rr-error">{error}</div>}
+          {codeNotice && <div className="rr-alert rr-info">Code sign-in is not enabled yet. Please use your password or contact an administrator for a reset.</div>}
+
+          <button className="rr-submit" type="submit" disabled={checking}>{checking ? "SIGNING IN…" : "SIGN IN"}</button>
+        </form>
+
+        <div className="rr-benefits" aria-label="S&H service commitments">
+          <div className="rr-benefit"><div className="rr-benefit-icon">◷</div><strong>Fast Response</strong><span>Available when the team needs access.</span></div>
+          <div className="rr-benefit"><div className="rr-benefit-icon">♙</div><strong>Trusted Team</strong><span>Secure access for S&H employees.</span></div>
+          <div className="rr-benefit"><div className="rr-benefit-icon">◇</div><strong>Quality Results</strong><span>Restoration done right, every time.</span></div>
         </div>
 
-        <div style={{ textAlign: "center", fontSize: 12, color: BRAND.muted, marginTop: 20 }}>
-          Tap your name, then enter your password
-        </div>
+        <div className="rr-secure"><div>▣ &nbsp; SECURE &nbsp;•&nbsp; ENCRYPTED &nbsp;•&nbsp; S&H TEAM ACCESS</div><span>Your session is protected on this device.</span></div>
       </div>
     </div>
   );
@@ -24041,7 +23973,7 @@ export default function App() {
   // device could skip the mandatory setup screen entirely.
   const [user, setUserRaw] = useState(() => {
     try {
-      const saved = localStorage.getItem("sh_session_user");
+      const saved = localStorage.getItem("sh_session_user") || sessionStorage.getItem("sh_session_user");
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
@@ -24056,7 +23988,7 @@ export default function App() {
           // Pending forced reset — kick back to the login/setup flow instead
           // of silently continuing into the app.
           setUserRaw(null);
-          try { localStorage.removeItem("sh_session_user"); } catch {}
+          try { localStorage.removeItem("sh_session_user"); sessionStorage.removeItem("sh_session_user"); } catch {}
         }
       } catch {
         // If we can't reach the server, don't block the saved session —
@@ -24067,11 +23999,21 @@ export default function App() {
     verifySession();
     return () => { cancelled = true; };
   }, []); // only on mount
-  function setUser(u) {
+  function setUser(u, remember = true) {
     setUserRaw(u);
     try {
-      if (u) localStorage.setItem("sh_session_user", JSON.stringify(u));
-      else localStorage.removeItem("sh_session_user");
+      if (u) {
+        if (remember) {
+          localStorage.setItem("sh_session_user", JSON.stringify(u));
+          sessionStorage.removeItem("sh_session_user");
+        } else {
+          sessionStorage.setItem("sh_session_user", JSON.stringify(u));
+          localStorage.removeItem("sh_session_user");
+        }
+      } else {
+        localStorage.removeItem("sh_session_user");
+        sessionStorage.removeItem("sh_session_user");
+      }
     } catch {}
     // Ask for notification permission and register this device for push —
     // best-effort, never blocks login. Crews in the field then get real
@@ -24099,7 +24041,7 @@ export default function App() {
   // completed login (password set + contact info saved) — we use that single
   // moment to have Erik pop up with a quick walkthrough of the basics.
   function handleLogin(u, opts) {
-    setUser(u);
+    setUser(u, opts?.remember !== false);
     if (opts?.firstLogin) {
       setShowChatbot(true);
       setChatbotOnboarding(true);
@@ -24587,7 +24529,7 @@ export default function App() {
           <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 200, padding: "12px 14px", background: BRAND.navy, borderTop: `2px solid ${BRAND.gold}`, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -4px 16px rgba(0,0,0,0.25)" }}>
             <img src={`data:image/png;base64,${LOGO_B64}`} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: "contain", background: "#fff", padding: 3, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Install S&H Jobs</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Install S&H RestoredRight</div>
               <div style={{ fontSize: 11, color: "#94A3B8" }}>Add to your home screen for one-tap access</div>
             </div>
             <button onClick={handleInstallClick} style={{ background: BRAND.gold, border: "none", borderRadius: 8, color: BRAND.navy, fontWeight: 700, fontSize: 12, padding: "8px 14px", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
