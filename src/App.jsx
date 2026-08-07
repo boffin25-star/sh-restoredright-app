@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-phase2b — Restored original floating Ask Erik chatbot icon on every app screen, including Dashboard; mobile position clears bottom navigation.";
+const BUILD_STAMP = "2026-08-07-phase2c — Removed duplicate Erik Asks dashboard card; widened sidebar; enlarged S&H logo; added blueprint-house watermark across app screens; retained separate responsive desktop and mobile layouts.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2626,11 +2626,6 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
         </section>
       </div>
 
-      <button className="sh-erik-card" onClick={onOpenChatbot}>
-        <span className="sh-erik-avatar">E</span>
-        <span><strong>Erik Asks</strong><small>Need help? Ask Erik anything.</small></span>
-        <b>›</b>
-      </button>
     </div>
   );
 }
@@ -24732,14 +24727,25 @@ export default function App() {
           @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
           .sh-app-shell{font-family:'Inter',system-ui,sans-serif;min-height:100vh;background:#f6f8fc;color:#17345f;display:flex;width:100%}
           .sh-app-shell.desktop{background:#eef3f9}
-          .sh-main-workspace{min-width:0;min-height:100vh;display:flex;flex-direction:column;background:#f8faff;position:relative;overflow:hidden}
+          .sh-main-workspace{
+            min-width:0;
+            min-height:100vh;
+            display:flex;
+            flex-direction:column;
+            background:
+              linear-gradient(rgba(248,250,255,.90), rgba(248,250,255,.90)),
+              url("/blueprint-house.jpg") center center / cover no-repeat;
+            background-attachment:fixed;
+            position:relative;
+            overflow:hidden;
+          }
           .desktop .sh-main-workspace{flex:1;max-width:1400px;margin:0 auto;border-right:1px solid #e0e7f0}
           .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:68px}
-          .sh-sidebar{width:178px;background:linear-gradient(180deg,#0d3b80,#082b60);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:4px 0 20px rgba(8,43,96,.12)}
-          .sh-sidebar-brand{height:84px;padding:13px 14px;border-bottom:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center}
-          .sh-sidebar-brand img{width:136px;max-height:60px;object-fit:contain}
+          .sh-sidebar{width:225px;background:linear-gradient(180deg,#0d3b80,#082b60);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:4px 0 20px rgba(8,43,96,.12)}
+          .sh-sidebar-brand{height:112px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center}
+          .sh-sidebar-brand img{width:185px;max-height:82px;object-fit:contain}
           .sh-sidebar-nav{padding:10px 8px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
-          .sh-side-item{position:relative;border:0;background:transparent;color:rgba(255,255,255,.82);border-radius:7px;padding:8px 9px;display:flex;align-items:center;gap:9px;font-size:11px;font-weight:600;text-align:left;cursor:pointer}
+          .sh-side-item{position:relative;border:0;background:transparent;color:rgba(255,255,255,.82);border-radius:8px;padding:9px 12px;display:flex;align-items:center;gap:9px;font-size:11px;font-weight:600;text-align:left;cursor:pointer}
           .sh-side-item:hover{background:rgba(255,255,255,.08);color:#fff}
           .sh-side-item.active{background:#fff;color:#0d3b80;box-shadow:0 3px 10px rgba(0,0,0,.12)}
           .sh-side-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -24763,7 +24769,7 @@ export default function App() {
           .sh-user-chip>div{display:flex;flex-direction:column;min-width:90px}.sh-user-chip strong{font-size:10px}.sh-user-chip small{font-size:8px;color:#66768d;margin-top:2px}
           .sh-user-chip>button{border:0;background:transparent;color:#66768d;cursor:pointer}
           .sh-backup-chip{border:0;background:#fee2e2;color:#b91c1c;border-radius:7px;font-size:9px;font-weight:700;padding:6px 9px}
-          .sh-dashboard{flex:1;overflow-y:auto;padding:18px;background:#f7f9fc}
+          .sh-dashboard{flex:1;overflow-y:auto;padding:18px;background:rgba(247,249,252,.82);backdrop-filter:blur(.4px)}
           .sh-dash-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;position:relative}
           .sh-dash-hero:after{content:'Simple | Honest';position:absolute;left:44%;top:-12px;font-family:Georgia,serif;font-style:italic;font-size:50px;color:#0d3b80;opacity:.035;white-space:nowrap;pointer-events:none}
           .sh-dash-title{font-size:20px;font-weight:800;color:#0d3b80}.sh-dash-subtitle{font-size:10px;color:#66768d;margin-top:3px}
@@ -24783,8 +24789,7 @@ export default function App() {
           .sh-priority{font-size:7px;font-weight:700;border-radius:5px;padding:3px 5px}.sh-status-pill{font-size:7px;font-weight:700;border:1px solid;border-radius:5px;padding:3px 5px;white-space:nowrap}
           .sh-schedule-date{width:38px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:8px;color:#0d3b80}.sh-schedule-date small{font-size:7px;color:#66768d;margin-top:2px}
           .sh-empty{font-size:9px;color:#8a98ac;text-align:center;padding:22px 8px}
-          .sh-erik-card{margin-top:10px;margin-left:auto;width:min(100%,360px);background:#fff;border:1px solid #dce4ef;border-radius:9px;padding:9px 11px;display:flex;align-items:center;gap:9px;cursor:pointer;text-align:left}
-          .sh-erik-avatar{width:32px;height:32px;border-radius:50%;background:#0d3b80;color:#fff;display:grid;place-items:center;font-weight:800}.sh-erik-card>span:nth-child(2){flex:1;display:flex;flex-direction:column}.sh-erik-card strong{font-size:9px;color:#17345f}.sh-erik-card small{font-size:7.5px;color:#66768d;margin-top:2px}.sh-erik-card b{color:#0d3b80}
+          
           .sh-bottom-nav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(100%,430px);height:64px;background:#fff;border-top:1px solid #dce4ef;display:flex;z-index:120;padding-bottom:env(safe-area-inset-bottom)}
           .sh-bottom-nav button{flex:1;border:0;background:#fff;color:#66768d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative}.sh-bottom-nav button>span{width:18px;height:18px;display:block}.sh-bottom-nav svg{width:18px;height:18px}.sh-bottom-nav small{font-size:7px;font-weight:650}.sh-bottom-nav button.active{color:#0d3b80}.sh-bottom-nav button i{position:absolute;top:7px;right:17%;background:#dc2626;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}.sh-more-dots{font-size:17px;line-height:12px;font-weight:800}
           .sh-more-backdrop{position:fixed;inset:0;background:rgba(8,43,96,.34);z-index:180;display:flex;align-items:flex-end;justify-content:center}
@@ -24792,7 +24797,7 @@ export default function App() {
           .sh-more-handle{width:38px;height:4px;border-radius:99px;background:#d6dee9;margin:3px auto 9px}.sh-more-title{display:flex;align-items:center;justify-content:space-between;padding:2px 3px 10px}.sh-more-title strong{font-size:16px;color:#0d3b80}.sh-more-title button{border:0;background:#f1f5f9;width:28px;height:28px;border-radius:50%;font-size:17px}
           .sh-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sh-more-grid button{border:1px solid #dce4ef;background:#fff;border-radius:10px;min-height:76px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#0d3b80}.sh-more-grid button.active{background:#eff6ff;border-color:#93c5fd}.sh-more-grid button>span{width:22px;height:22px;display:block}.sh-more-grid svg{width:22px;height:22px}.sh-more-grid small{font-size:8px;font-weight:700;text-align:center}
           @media(max-width:767px){
-            .sh-topbar{height:57px;padding:0 11px;gap:8px}.sh-mobile-brand{display:flex;align-items:center;width:96px}.sh-mobile-brand img{width:91px;max-height:42px;object-fit:contain}
+            .sh-topbar{height:57px;padding:0 11px;gap:8px}.sh-mobile-brand{display:flex;align-items:center;width:112px}.sh-mobile-brand img{width:106px;max-height:46px;object-fit:contain}
             .sh-search-wrap{display:none}.sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:7px}
             .sh-dashboard{padding:12px 10px 18px}.sh-dash-hero{align-items:flex-start;margin-bottom:10px}.sh-dash-title{font-size:16px}.sh-dash-subtitle{font-size:8px}.sh-dash-actions{display:none}
             .sh-dash-hero:after{font-size:34px;left:42%;top:-4px}
