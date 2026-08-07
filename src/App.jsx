@@ -3154,6 +3154,21 @@ function LoginScreen({ onLogin }) {
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
   const [codeNotice, setCodeNotice] = useState(false);
+  const [rosterReady, setRosterReady] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState("");
+
+  // Load the live employee roster BEFORE authentication. The old login screen
+  // let people tap their employee card, so it never depended on knowing a
+  // username. The redesigned screen must refresh the roster here so renamed
+  // or newly-added employees can still sign in.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try { await loadEmployees(); } catch {}
+      if (active) setRosterReady(true);
+    })();
+    return () => { active = false; };
+  }, []);
 
   // First-login setup state (preserves the existing forced password reset flow).
   const [setupStage, setSetupStage] = useState(false);
@@ -3167,13 +3182,30 @@ function LoginScreen({ onLogin }) {
   function resolveUser(value) {
     const q = (value || "").trim().toLowerCase();
     if (!q) return null;
-    const exact = SALES_USERS.find(u =>
-      String(u.id || "").toLowerCase() === q ||
-      String(u.name || "").toLowerCase() === q
+
+    const active = (_employeeDirectory || []).filter(e => e.active !== false);
+    const candidates = active.length
+      ? active.map(e => ({ id: e.id, name: e.name, crewName: e.crewName || e.name }))
+      : SALES_USERS.map(u => ({ ...u, crewName: u.name }));
+
+    const normalize = (v) => String(v || "").trim().toLowerCase();
+    const exact = candidates.find(u =>
+      normalize(u.id) === q ||
+      normalize(u.name) === q ||
+      normalize(u.crewName) === q
     );
-    if (exact) return exact;
-    const firstNameMatches = SALES_USERS.filter(u => String(u.name || "").split(" ")[0].toLowerCase() === q);
-    return firstNameMatches.length === 1 ? firstNameMatches[0] : null;
+    if (exact) return { id: exact.id, name: exact.name };
+
+    const firstToken = q.split(/[\s@._-]+/).filter(Boolean)[0] || q;
+    const firstNameMatches = candidates.filter(u =>
+      normalize(u.name).split(/\s+/)[0] === firstToken ||
+      normalize(u.id).split(/[_-]+/)[0] === firstToken
+    );
+    if (firstNameMatches.length === 1) {
+      return { id: firstNameMatches[0].id, name: firstNameMatches[0].name };
+    }
+
+    return null;
   }
 
   async function submitPassword(event) {
@@ -3181,7 +3213,7 @@ function LoginScreen({ onLogin }) {
     setError("");
     setCodeNotice(false);
     const user = resolveUser(username);
-    if (!user) { setError("Enter a valid employee username or name."); return; }
+    if (!user) { setError("Choose your account above, or enter your first name / employee username."); return; }
     if (!password) { setError("Enter your password."); return; }
     setChecking(true);
     try {
@@ -3294,8 +3326,30 @@ function LoginScreen({ onLogin }) {
 
         <form className="rr-card" onSubmit={submitPassword}>
           <div className="rr-field">
-            <label className="rr-label" htmlFor="rr-username">Username</label>
-            <input id="rr-username" className="rr-input" value={username} onChange={e => { setUsername(e.target.value); setError(""); }} placeholder="Enter your username" autoComplete="username" list="rr-user-list" />
+            <label className="rr-label" htmlFor="rr-account">Choose Your Account</label>
+            <select
+              id="rr-account"
+              className="rr-input"
+              value={selectedAccount}
+              onChange={e => {
+                const id = e.target.value;
+                setSelectedAccount(id);
+                const emp = (_employeeDirectory || []).find(x => x.id === id) || SALES_USERS.find(x => x.id === id);
+                if (emp) setUsername(emp.name);
+                setError("");
+              }}
+              disabled={!rosterReady}
+            >
+              <option value="">{rosterReady ? "Select your name…" : "Loading employees…"}</option>
+              {((_employeeDirectory || []).filter(e => e.active !== false).length
+                ? _employeeDirectory.filter(e => e.active !== false)
+                : SALES_USERS
+              ).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </div>
+          <div className="rr-field">
+            <label className="rr-label" htmlFor="rr-username">Username or Name</label>
+            <input id="rr-username" className="rr-input" value={username} onChange={e => { setUsername(e.target.value); setSelectedAccount(""); setError(""); }} placeholder="Example: Brandon" autoComplete="username" list="rr-user-list" />
             <datalist id="rr-user-list">{SALES_USERS.map(u => <option key={u.id} value={u.name} />)}</datalist>
           </div>
           <div className="rr-field">
