@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-phase2f — Supplied badge on login; supplied horizontal logo enlarged in mobile/desktop header; desktop badge at sidebar bottom; mobile nav circles; Quick Actions on mobile; blue outlines; centered popups/notifications; App Hub blueprint/login-theme restyle; Claude features preserved.";
+const BUILD_STAMP = "2026-08-07-phase2g — Second App Hub splash fully restyled with blueprint/login theme; mobile header logo widened so SERVICES is visible; Dashboard My Tasks now includes standalone_tasks; desktop left sidebar explicitly preserved.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1487,115 +1487,106 @@ function HubIcon({ name, size = 28, color = "#fff" }) {
 function AppHubScreen({ user, onSelect, isDesktopView }) {
   const firstName = user?.name?.split(" ")[0] || "there";
   const hubApps = getUserHubApps(user);
+
   return (
-    <div style={{
-      ...S.app,
-      minHeight: "100vh",
-      alignItems: "center",
-      justifyContent: "center",
-      background: BRAND.navy,
-    }}>
-      <div style={{
-        width: "100%",
-        maxWidth: isDesktopView ? 700 : 430,
-        minHeight: "100vh",
-        background: BRAND.offWhite,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "40px 20px 32px",
-        boxSizing: "border-box",
-      }}>
-        <img
-          src={`data:image/png;base64,${LOGO_WIDE_B64}`}
-          alt="S&H Services"
-          style={{ width: 180, marginBottom: 18 }}
-        />
+    <div className="sh-hub-page">
+      <style>{`
+        .sh-hub-page{
+          min-height:100vh;
+          width:100%;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          padding:30px 18px;
+          font-family:'Inter',system-ui,sans-serif;
+          background:
+            linear-gradient(rgba(247,250,255,.86),rgba(247,250,255,.92)),
+            url("/blueprint-house.jpg") center center / cover no-repeat fixed;
+        }
+        .sh-hub-shell{
+          width:min(100%,${isDesktopView ? "780px" : "430px"});
+          background:rgba(255,255,255,.93);
+          border:1px solid #9FBEEC;
+          border-radius:20px;
+          padding:${isDesktopView ? "32px 36px 30px" : "24px 16px 22px"};
+          box-shadow:0 18px 50px rgba(13,59,128,.14);
+          backdrop-filter:blur(6px);
+        }
+        .sh-hub-brand{text-align:center;margin-bottom:22px}
+        .sh-hub-brand img{
+          width:min(100%,${isDesktopView ? "420px" : "300px"});
+          max-height:${isDesktopView ? "118px" : "92px"};
+          object-fit:contain;
+        }
+        .sh-hub-brand h1{margin:14px 0 4px;font-size:${isDesktopView ? "26px" : "21px"};color:#0D3B80}
+        .sh-hub-brand p{margin:0;color:#66768D;font-size:13px}
+        .sh-hub-apps{
+          display:grid;
+          grid-template-columns:${isDesktopView ? "repeat(2,minmax(0,1fr))" : "1fr"};
+          gap:12px;
+        }
+        .sh-hub-app{
+          width:100%;
+          min-height:94px;
+          background:#fff;
+          border:1px solid #9FBEEC;
+          border-radius:14px;
+          padding:15px 16px;
+          display:flex;
+          align-items:center;
+          gap:13px;
+          cursor:pointer;
+          text-align:left;
+          color:#0D3B80;
+          box-shadow:0 3px 10px rgba(13,59,128,.06);
+        }
+        .sh-hub-app:hover{background:#F3F7FD;border-color:#6F9DDE}
+        .sh-hub-icon{
+          width:50px;height:50px;border-radius:50%;
+          flex:0 0 auto;background:#0D3B80;color:#fff;
+          display:flex;align-items:center;justify-content:center;
+        }
+        .sh-hub-copy{flex:1;min-width:0}
+        .sh-hub-copy strong{display:block;color:#0D3B80;font-size:15px;margin-bottom:3px}
+        .sh-hub-copy small{display:block;color:#66768D;font-size:11px;line-height:1.35}
+        .sh-hub-arrow{color:#1456B8;font-size:24px}
+        .sh-hub-main{
+          width:100%;margin-top:14px;height:46px;border:0;border-radius:10px;
+          background:linear-gradient(90deg,#0D3B80,#1456B8);color:#fff;
+          font-weight:750;cursor:pointer;
+        }
+        .sh-hub-footer{
+          text-align:center;color:#0D3B80;font-size:11px;
+          font-weight:650;margin-top:16px;letter-spacing:.08em;
+        }
+      `}</style>
 
-        <div style={{ fontSize: 22, fontWeight: 800, color: BRAND.navy, marginBottom: 4, textAlign: "center" }}>
-          Welcome back, {firstName}!
-        </div>
-        <div style={{ fontSize: 14, color: BRAND.muted, marginBottom: 32, textAlign: "center" }}>
-          Where would you like to go?
+      <section className="sh-hub-shell">
+        <div className="sh-hub-brand">
+          <img src="/sh-header-logo.png" alt="S&H Services — Simple | Honest" />
+          <h1>Welcome back, {firstName}!</h1>
+          <p>Choose where you'd like to go.</p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
+        <div className="sh-hub-apps">
           {hubApps.map(app => (
-            <button
-              key={app.id}
-              onClick={() => onSelect(app.dest)}
-              style={{
-                width: "100%",
-                background: app.color,
-                border: "none",
-                borderRadius: 16,
-                padding: "20px 22px",
-                display: "flex",
-                alignItems: "center",
-                gap: 18,
-                cursor: "pointer",
-                boxShadow: "0 4px 16px rgba(27,58,107,0.18)",
-                transition: "transform 0.12s, box-shadow 0.12s",
-                textAlign: "left",
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = "scale(1.025)";
-                e.currentTarget.style.boxShadow = "0 8px 24px rgba(27,58,107,0.28)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = "";
-                e.currentTarget.style.boxShadow = "0 4px 16px rgba(27,58,107,0.18)";
-              }}
-            >
-              <div style={{
-                width: 52,
-                height: 52,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                <HubIcon name={app.icon} size={26} color="#fff" />
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 3, letterSpacing: "-0.1px" }}>
-                  {app.label}
-                </div>
-                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.72)", lineHeight: 1.35 }}>
-                  {app.subtitle}
-                </div>
-              </div>
-
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke="rgba(255,255,255,0.6)" strokeWidth="2.2"
-                strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
+            <button key={app.id} className="sh-hub-app" onClick={() => onSelect(app.dest)}>
+              <span className="sh-hub-icon"><HubIcon name={app.icon} size={25} color="#fff" /></span>
+              <span className="sh-hub-copy">
+                <strong>{app.label}</strong>
+                <small>{app.subtitle}</small>
+              </span>
+              <span className="sh-hub-arrow">›</span>
             </button>
           ))}
         </div>
 
-        <button
-          onClick={() => onSelect("main")}
-          style={{
-            marginTop: 28,
-            background: "none",
-            border: "none",
-            color: BRAND.muted,
-            fontSize: 14,
-            cursor: "pointer",
-            textDecoration: "underline",
-            textDecorationColor: "transparent",
-          }}
-          onMouseEnter={e => e.currentTarget.style.textDecorationColor = BRAND.muted}
-          onMouseLeave={e => e.currentTarget.style.textDecorationColor = "transparent"}
-        >
-          Skip — go to Jobs & Operations
+        <button className="sh-hub-main" onClick={() => onSelect("main")}>
+          Open S&amp;H Jobs &amp; Operations
         </button>
-      </div>
+
+        <div className="sh-hub-footer">SIMPLE &nbsp; | &nbsp; HONEST</div>
+      </section>
     </div>
   );
 }
@@ -2467,7 +2458,7 @@ function TabIconButton({ tab, active, onClick, badge }) {
 
 // ─── Home Screen — grid of all tabs as circular card-style icons, shown as
 // the landing page. Tapping any tile navigates straight to that tab.
-function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQuickAction, isDesktopView, onOpenChatbot }) {
+function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, standaloneTasks = [], onQuickAction, isDesktopView, onOpenChatbot }) {
   const [showQuickActions, setShowQuickActions] = useState(false);
 
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -2477,7 +2468,17 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
     (j.jobTasks || []).forEach(t => {
       if (!parseAssignees(t.assignedTo).includes(user?.name)) return;
       if (t.status === "Completed") return;
-      assignedTasks.push({ ...t, jobCustomer: j.customerName, jobId: j.id });
+      assignedTasks.push({ ...t, jobCustomer: j.customerName, jobId: j.id, isStandalone: false });
+    });
+  });
+  (standaloneTasks || []).forEach(t => {
+    if (!parseAssignees(t.assignedTo).includes(user?.name)) return;
+    if (t.status === "Completed") return;
+    assignedTasks.push({
+      ...t,
+      jobCustomer: t.jobCustomer || t.job_customer || "",
+      jobId: t.jobId || t.job_id || null,
+      isStandalone: true,
     });
   });
   const dueToday = assignedTasks.filter(t => (t.followUpDate || t.dueDate || "").slice(0,10) === todayKey);
@@ -2503,7 +2504,13 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
     .sort((a,b) => a._d - b._d)
     .slice(0, 5);
 
-  const taskPreview = (dueToday.length ? dueToday : assignedTasks).slice(0, 5);
+  const taskPreview = [...assignedTasks]
+    .sort((a,b) => {
+      const ad = a.followUpDate || a.dueDate || a.dateAssigned || "9999-12-31";
+      const bd = b.followUpDate || b.dueDate || b.dateAssigned || "9999-12-31";
+      return String(ad).localeCompare(String(bd));
+    })
+    .slice(0, 5);
 
   const metricCards = [
     { label:"My Tasks", value: assignedTasks.length, sub: dueToday.length ? `${dueToday.length} due today` : "Active tasks", icon:"tasks", tint:"#EFF6FF", ink:"#1D4ED8", tab:"tasks" },
@@ -2570,7 +2577,7 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
                   <span className="sh-dot" style={{ background:p.color }} />
                   <span className="sh-row-main">
                     <strong>{t.title}</strong>
-                    <small>{t.jobCustomer || "General task"}{t.followUpDate ? ` · ${fmtDate(t.followUpDate)}` : ""}</small>
+                    <small>{t.jobCustomer || (t.isStandalone ? "Standalone task" : "General task")}{t.followUpDate ? ` · ${fmtDate(t.followUpDate)}` : t.dateAssigned ? ` · ${fmtDate(t.dateAssigned)}` : ""}</small>
                   </span>
                   <span className="sh-priority" style={{ color:p.color, background:p.color+"12" }}>{p.label}</span>
                 </button>
@@ -24276,6 +24283,7 @@ export default function App() {
     setTab(action === "addReceipt" ? "receipts" : "mileage");
   }
   const [jobs, setJobs]   = useState([]);
+  const [dashboardStandaloneTasks, setDashboardStandaloneTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [initErr, setInitErr] = useState(null);
   const [backupReminder, setBackupReminder] = useState(false);
@@ -24679,7 +24687,12 @@ export default function App() {
         setInitErr(null);
 
         let standaloneTasks = [];
-        try { standaloneTasks = await fetchStandaloneTasks(); } catch {}
+        try {
+          standaloneTasks = await fetchStandaloneTasks();
+          setDashboardStandaloneTasks(standaloneTasks);
+        } catch {
+          setDashboardStandaloneTasks([]);
+        }
 
         // Check last login time
         const lastLoginKey = `last_login_${user.id}`;
@@ -24929,8 +24942,8 @@ export default function App() {
           @media(max-width:767px){
             .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0}
             .sh-topbar{height:76px;padding:0 10px;gap:7px;background:linear-gradient(90deg,#0D3B80,#1456B8)}
-            .sh-mobile-brand{display:flex;align-items:center;width:190px;flex-shrink:1}
-            .sh-mobile-brand img{width:182px;max-height:62px;object-fit:contain;object-position:left center}
+            .sh-mobile-brand{display:flex;align-items:center;width:220px;min-width:0;flex:1}
+            .sh-mobile-brand img{width:210px;max-width:100%;max-height:64px;object-fit:contain;object-position:left center}
             .sh-search-wrap{display:none}
             .sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}
             .sh-user-chip{border-left:0;padding-left:0}
@@ -25342,7 +25355,7 @@ export default function App() {
         ) : (
           <AppErrorBoundary>
           <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-            {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} isDesktopView={isDesktopView} onOpenChatbot={() => setShowChatbot(true)} />}
+            {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} standaloneTasks={dashboardStandaloneTasks} onQuickAction={runQuickAction} isDesktopView={isDesktopView} onOpenChatbot={() => setShowChatbot(true)} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} onCheckScheduleConflict={brCheckScheduleConflict} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
             {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
