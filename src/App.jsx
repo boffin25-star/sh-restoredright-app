@@ -9358,28 +9358,34 @@ function PermitPhotos({ job, onUpdate }) {
 }
 
 // ─── Job Contracts & Invoices ─────────────────────────────────────────────────
-function JobContracts({ jobId }) {
+// `job` and `user` are optional — when provided (from Job Detail), estimates
+// get the same two acceptance actions as the Estimates tab (in-person/remote
+// signature, or a manual phone-acceptance log) right where staff are already
+// looking at the job. Without them, this still just lists docs read-only.
+function JobContracts({ jobId, job, user }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [acceptingDoc, setAcceptingDoc] = useState(null);
+  const [phoneAcceptingDoc, setPhoneAcceptingDoc] = useState(null);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        // Fetch metadata only (no url) filtered to this job
-        const rows = await sbFetch(
-          `documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type`
-        );
-        const jobDocs = (rows || []).filter(d =>
-          d.description?.includes(jobId) || d.name?.includes(jobId)
-        );
-        setDocs(jobDocs);
-      } catch {}
-      setLoading(false);
-    }
-    load();
-  }, [jobId]);
+  async function load() {
+    try {
+      // Fetch metadata only (no url) filtered to this job
+      const rows = await sbFetch(
+        `documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type`
+      );
+      const jobDocs = (rows || []).filter(d =>
+        d.description?.includes(jobId) || d.name?.includes(jobId)
+      );
+      setDocs(jobDocs);
+    } catch {}
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [jobId]);
 
   async function open(doc) {
     setLoadingId(doc.id);
@@ -9420,9 +9426,66 @@ function JobContracts({ jobId }) {
     );
   }
 
+  // Estimates get their own row (instead of the plain DocRow) so we can offer
+  // both acceptance actions right here, mirroring the Estimates tab.
+  function EstimateRow({ doc }) {
+    const isAcceptedCopy = doc.name?.startsWith("[Client Accepted]");
+    const hasAcceptedCopy = !isAcceptedCopy && docs.some(d => d.name === `[Client Accepted] ${doc.name}`);
+    return (
+      <div style={{ ...S.card, borderLeft: isAcceptedCopy ? "4px solid #16A34A" : "4px solid #D97706" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ fontSize: 26, flexShrink: 0 }}>{isAcceptedCopy ? "✅" : "📐"}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy, wordBreak: "break-word" }}>{doc.name}</div>
+            {doc.description && <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 2 }}>{doc.description}</div>}
+            <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 3 }}>
+              {doc.uploaded_by} · {fmtDate(doc.uploaded_at)}
+            </div>
+            {hasAcceptedCopy && (
+              <div style={{ marginTop: 6 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#16A34A", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 5, padding: "2px 8px" }}>✓ Client Accepted</span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+              <button
+                onClick={() => open(doc)}
+                style={{ background: "#D97706", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "5px 14px", cursor: "pointer", opacity: loadingId === doc.id ? 0.6 : 1 }}
+              >
+                {loadingId === doc.id ? "Opening…" : "View Estimate"}
+              </button>
+              {!isAcceptedCopy && job && user && (
+                <>
+                  <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : "#fff", fontSize: 11, fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
+                    {hasAcceptedCopy ? "✍️ Sign Again" : "✍️ Client Accept"}
+                  </button>
+                  <button onClick={() => setPhoneAcceptingDoc(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
+                    📞 Accepted by Phone
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
       {lightbox && <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />}
+      {acceptingDoc && (
+        <EstimateAcceptance doc={acceptingDoc} jobs={[job]} user={user}
+          onCancel={() => setAcceptingDoc(null)}
+          onDone={() => { setAcceptingDoc(null); load(); setToast({ msg: "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+        />
+      )}
+      {phoneAcceptingDoc && (
+        <EstimatePhoneAccept doc={phoneAcceptingDoc} jobs={[job]} user={user}
+          onCancel={() => setPhoneAcceptingDoc(null)}
+          onDone={() => { setPhoneAcceptingDoc(null); load(); setToast({ msg: "Phone acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+        />
+      )}
 
       {contracts.length > 0 && (
         <>
@@ -9441,7 +9504,7 @@ function JobContracts({ jobId }) {
       {estimates.length > 0 && (
         <>
           <div style={S.sect}>Estimates ({estimates.length})</div>
-          {estimates.map(d => <DocRow key={d.id} doc={d} color="#D97706" icon="📐" label="Estimate" />)}
+          {estimates.map(d => <EstimateRow key={d.id} doc={d} />)}
         </>
       )}
     </div>
@@ -10834,7 +10897,7 @@ function JobDetail({ job, onBack, onUpdate, onDelete, user, isDesktopView, jobs,
 
           <AccordionItem id="contracts" title="Contracts & Invoices" icon={TabIcons.contracts2} accentColor="#7C3AED">
             <div style={{ paddingTop: 8 }}>
-              <JobContracts jobId={job.id} />
+              <JobContracts jobId={job.id} job={job} user={user} />
             </div>
           </AccordionItem>
 
@@ -13637,6 +13700,88 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
   );
 }
 
+// Companion to EstimateAcceptance for when a client accepts verbally (e.g. a
+// phone call) instead of signing in person or via the remote sign link.
+// Reuses the same certificate-image renderer (its typed-name fallback path,
+// same as the remote-sign flow) and the same notifyOwnersToScheduleJob call
+// so every acceptance path — in-person, remote, or phone — ends up in the
+// exact same place: is_estimate flips false and both owners get a "schedule
+// this job" task. Also stamps the new estimate_approved_* columns on the job
+// so there's a clear record of who logged the call and when.
+function EstimatePhoneAccept({ doc, jobs, user, onDone, onCancel }) {
+  const job = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
+  const [clientPrintedName, setClientPrintedName] = useState(job?.customerName || "");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const amountMatch = doc.description?.match(/\$([\d,]+\.\d{2})/);
+  const total = amountMatch ? amountMatch[1] : null;
+
+  async function confirm() {
+    setSaving(true);
+    try {
+      const dataUrl = await renderEstimateAcceptanceImage({
+        doc, job, total, clientPrintedName, sigDataUrl: null,
+        signedLine: `Accepted by phone · logged by ${user.name}`,
+      });
+      const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+      await insertDoc({
+        id: "DOC-" + Date.now(),
+        name: `[Client Accepted] ${doc.name}`,
+        description: `Client acceptance of ${doc.name}${job ? ` for ${job.id}` : ""} · Accepted by phone ${today}${note ? ` · ${note}` : ""}`,
+        url: dataUrl,
+        file_type: "png",
+        doc_type: "estimate",
+        uploaded_by: user.name,
+        uploaded_at: new Date().toISOString(),
+      });
+
+      if (job) {
+        await sbFetch(`jobs?id=eq.${job.id}`, { method: "PATCH", body: JSON.stringify({
+          estimate_approved_at: new Date().toISOString(),
+          estimate_approved_by: user.name,
+          estimate_approval_method: "phone_call",
+          estimate_approval_note: note || null,
+        }) });
+        await notifyOwnersToScheduleJob(job, { contextLabel: "Estimate accepted (by phone)", createdBy: user.name });
+      }
+
+      onDone();
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 22, maxWidth: 380, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.navy, marginBottom: 4 }}>📞 Client Accepted by Phone</div>
+        <div style={{ fontSize: 12, color: BRAND.muted, marginBottom: 14 }}>{doc.name}{total ? ` · $${total}` : ""}</div>
+
+        <div style={{ background: "#FFF7ED", border: "1px solid #FDBA74", borderRadius: 9, padding: "9px 11px", fontSize: 11.5, color: "#7C2D12", lineHeight: 1.5, marginBottom: 14 }}>
+          Use this when the client verbally accepted (e.g. called in) instead of signing. This logs who took the call and moves the job out of Estimate status.
+        </div>
+
+        <label style={S.lbl}>Client Name</label>
+        <input style={S.input} value={clientPrintedName} onChange={e => setClientPrintedName(e.target.value)} />
+
+        <div style={{ marginTop: 12 }}>
+          <label style={S.lbl}>Note (optional)</label>
+          <textarea style={S.textarea} placeholder="e.g. Called to confirm, spoke with Jane at 2pm" value={note} onChange={e => setNote(e.target.value)} />
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: "10px", border: `1.5px solid ${BRAND.border}`, borderRadius: 10, background: "#fff", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+          <button onClick={confirm} disabled={saving} style={{ flex: 1, padding: "10px", border: "none", borderRadius: 10, background: "#16A34A", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "✓ Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Docs Tab ─────────────────────────────────────────────────────────────────
 function DocsTab({ user, jobs, isDesktopView }) {
   const [docs, setDocs] = useState([]);
@@ -14440,6 +14585,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
   const [smsTo, setSmsTo] = useState("");
   const [creatingDoc, setCreatingDoc] = useState(false);
   const [acceptingDoc, setAcceptingDoc] = useState(null);
+  const [phoneAcceptingDoc, setPhoneAcceptingDoc] = useState(null);
   const allowDelete = canDelete(user);
 
   async function load() {
@@ -14609,6 +14755,12 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
           onDone={() => { setAcceptingDoc(null); load(); setToast({ msg: "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
         />
       )}
+      {phoneAcceptingDoc && (
+        <EstimatePhoneAccept doc={phoneAcceptingDoc} jobs={jobs} user={user}
+          onCancel={() => setPhoneAcceptingDoc(null)}
+          onDone={() => { setPhoneAcceptingDoc(null); load(); setToast({ msg: "Phone acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+        />
+      )}
 
       <div style={S.scroll}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -14664,6 +14816,11 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
                   {docType === "estimate" && !isAcceptedCopy && (
                     <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                       {hasAcceptedCopy ? "✍️ Sign Again" : "✍️ Client Accept"}
+                    </button>
+                  )}
+                  {docType === "estimate" && !isAcceptedCopy && (
+                    <button onClick={() => setPhoneAcceptingDoc(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
+                      📞 Accepted by Phone
                     </button>
                   )}
                   {allowDelete && <button onClick={() => remove(doc.id)} style={{ background: "none", border: `1px solid ${BRAND.border}`, borderRadius: 7, color: "#DC2626", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>Delete</button>}
