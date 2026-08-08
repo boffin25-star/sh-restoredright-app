@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-dashboard-v5 — Dashboard task source corrected for admin/team visibility, mobile dashboard enlarged for readability, header avatar restored as profile control, and chatbot removed from header while retaining floating Ask Erik.";
+const BUILD_STAMP = "2026-08-07-dashboard-v6 — Full visual consistency pass across all tabs and sections: RestoredRight blue/white card system, larger mobile controls and typography, consistent inputs/buttons/section headers, circular swipe-nav icons, blueprint watermark backgrounds, and preserved v5 dashboard/task/header fixes.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1359,24 +1359,168 @@ function exportToExcel(jobs) {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const S = {
-  app:      { fontFamily: "'Inter', system-ui, sans-serif", background: BRAND.navy, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center" },
-  phone:    { width: "100%", maxWidth: 430, minHeight: "100vh", background: BRAND.offWhite, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" },
-  header:   { background: BRAND.navy, color: BRAND.white, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, borderBottom: `2px solid ${BRAND.gold}` },
-  scroll:   { flex: 1, overflowY: "auto", padding: "14px 14px 24px" },
-  nav:      { background: BRAND.navy, borderBottom: `1px solid rgba(255,255,255,0.15)`, flexShrink: 0 },
-  navBtn:   (a) => ({ flex: 1, padding: "10px 0 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", color: a ? BRAND.gold : "#7A9CC4" }),
-  navLbl:   { fontSize: 9, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase" },
-  card:     { background: BRAND.white, borderRadius: 12, padding: 14, marginBottom: 11, boxShadow: "0 1px 4px rgba(27,58,107,0.08)", border: `1px solid ${BRAND.border}` },
-  lbl:      { fontSize: 11, fontWeight: 700, color: BRAND.muted, marginBottom: 5, display: "block", letterSpacing: 0.5, textTransform: "uppercase" },
-  input:    { width: "100%", padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${BRAND.border}`, fontSize: 15, background: BRAND.white, outline: "none", boxSizing: "border-box", fontFamily: "inherit", color: BRAND.text },
-  textarea: { width: "100%", padding: "11px 13px", borderRadius: 9, border: `1.5px solid ${BRAND.border}`, fontSize: 14, background: BRAND.white, outline: "none", boxSizing: "border-box", fontFamily: "inherit", color: BRAND.text, resize: "none", lineHeight: 1.5, height: 96 },
-  btn:      (v="primary") => ({ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: "inherit", marginTop: 6,
-    background: v === "primary" ? BRAND.navy : v === "gold" ? BRAND.gold : v === "danger" ? "#DC2626" : BRAND.offWhite,
-    color: v === "ghost" ? BRAND.text : BRAND.white }),
-  pills:    { display: "flex", flexWrap: "wrap", gap: 7, marginTop: 4 },
-  pill:     (a, c) => ({ padding: "7px 12px", borderRadius: 99, border: `2px solid ${a ? c : BRAND.border}`, background: a ? c + "18" : BRAND.white, cursor: "pointer", fontSize: 13, fontWeight: 600, color: a ? c : BRAND.muted }),
-  badge:    (bg, tx, bd) => ({ display: "inline-flex", alignItems: "center", fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: bg, color: tx, border: `1px solid ${bd}`, letterSpacing: 0.3 }),
-  sect:     { fontSize: 12, fontWeight: 700, color: BRAND.muted, margin: "6px 0 10px", textTransform: "uppercase", letterSpacing: 0.5 },
+  app: {
+    fontFamily: "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    background: BRAND.navy,
+    minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  phone: {
+    width: "100%",
+    maxWidth: 430,
+    minHeight: "100vh",
+    background: BRAND.offWhite,
+    display: "flex",
+    flexDirection: "column",
+    position: "relative",
+    overflow: "hidden",
+  },
+  header: {
+    background: BRAND.navy,
+    color: BRAND.white,
+    padding: "13px 16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexShrink: 0,
+    borderBottom: `3px solid ${BRAND.blue}`,
+    boxShadow: "0 3px 12px rgba(8,43,96,.14)",
+  },
+  scroll: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "clamp(16px, 2.2vw, 24px)",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  nav: {
+    background: BRAND.navy,
+    borderBottom: "1px solid rgba(255,255,255,.16)",
+    flexShrink: 0,
+  },
+  navBtn: (a) => ({
+    flex: 1,
+    padding: "10px 0 12px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: a ? BRAND.white : "#AFC6E6",
+  }),
+  navLbl: {
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: .25,
+    textTransform: "uppercase",
+  },
+  card: {
+    background: "rgba(255,255,255,.97)",
+    borderRadius: 16,
+    padding: "clamp(16px, 2vw, 20px)",
+    marginBottom: 14,
+    boxShadow: "0 6px 20px rgba(13,59,128,.08)",
+    border: "1px solid #D6E1EF",
+    boxSizing: "border-box",
+  },
+  lbl: {
+    fontSize: 11.5,
+    fontWeight: 800,
+    color: BRAND.navy,
+    marginBottom: 7,
+    display: "block",
+    letterSpacing: .45,
+    textTransform: "uppercase",
+  },
+  input: {
+    width: "100%",
+    minHeight: 46,
+    padding: "12px 14px",
+    borderRadius: 11,
+    border: "1.5px solid #CBD8EA",
+    fontSize: 15.5,
+    background: "#FFFFFF",
+    outline: "none",
+    boxSizing: "border-box",
+    fontFamily: "inherit",
+    color: BRAND.text,
+    boxShadow: "inset 0 1px 2px rgba(8,43,96,.025)",
+  },
+  textarea: {
+    width: "100%",
+    minHeight: 112,
+    padding: "12px 14px",
+    borderRadius: 11,
+    border: "1.5px solid #CBD8EA",
+    fontSize: 15,
+    background: "#FFFFFF",
+    outline: "none",
+    boxSizing: "border-box",
+    fontFamily: "inherit",
+    color: BRAND.text,
+    resize: "vertical",
+    lineHeight: 1.5,
+  },
+  btn: (v="primary") => ({
+    width: "100%",
+    minHeight: 46,
+    padding: "12px 16px",
+    borderRadius: 11,
+    border: v === "ghost" ? "1.5px solid #CBD8EA" : "none",
+    fontWeight: 800,
+    fontSize: 14.5,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    marginTop: 7,
+    background: v === "primary" ? BRAND.navy : v === "gold" ? BRAND.blue : v === "danger" ? "#DC2626" : "#F3F7FC",
+    color: v === "ghost" ? BRAND.navy : BRAND.white,
+    boxShadow: v === "primary" ? "0 4px 12px rgba(13,59,128,.16)" : "none",
+  }),
+  pills: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 5,
+  },
+  pill: (a, c) => ({
+    padding: "8px 13px",
+    minHeight: 38,
+    borderRadius: 999,
+    border: `1.5px solid ${a ? c : "#CBD8EA"}`,
+    background: a ? c + "16" : "#FFFFFF",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 750,
+    color: a ? c : BRAND.text,
+    boxSizing: "border-box",
+  }),
+  badge: (bg, tx, bd) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    fontSize: 11,
+    fontWeight: 800,
+    padding: "4px 9px",
+    minHeight: 26,
+    borderRadius: 999,
+    background: bg,
+    color: tx,
+    border: `1px solid ${bd}`,
+    letterSpacing: .2,
+  }),
+  sect: {
+    fontSize: 13,
+    fontWeight: 850,
+    color: BRAND.navy,
+    margin: "10px 0 12px",
+    paddingBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: .55,
+    borderBottom: "2px solid #E2EAF4",
+  },
 };
 
 
@@ -24915,6 +25059,86 @@ export default function App() {
           .sh-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sh-more-grid button{border:1px solid #dce4ef;background:#fff;border-radius:10px;min-height:76px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#0d3b80}.sh-more-grid button.active{background:#eff6ff;border-color:#93c5fd}.sh-more-grid button>span{width:22px;height:22px;display:block}.sh-more-grid svg{width:22px;height:22px}.sh-more-grid small{font-size:8px;font-weight:700;text-align:center}
 
           .sh-app-footer{min-height:38px;background:rgba(255,255,255,.96);border-top:3px solid #0d3b80;display:flex;align-items:center;justify-content:center;gap:16px;padding:7px 18px;color:#0d3b80;font-size:9px;flex-shrink:0;position:relative}.sh-app-footer b{font-size:8px}.sh-footer-version{position:absolute;right:18px}
+
+          /* ── v6 visual consistency layer: every tab shares the same RestoredRight system ── */
+          .sh-content-stage{color:#17345f}
+          .sh-content-stage h1,.sh-content-stage h2,.sh-content-stage h3,.sh-content-stage h4{
+            color:#0d3b80;
+            letter-spacing:-.015em;
+          }
+          .sh-content-stage h1{font-size:clamp(24px,2.4vw,32px);line-height:1.12;margin-top:0}
+          .sh-content-stage h2{font-size:clamp(20px,2vw,26px);line-height:1.18}
+          .sh-content-stage h3{font-size:clamp(17px,1.6vw,21px);line-height:1.2}
+          .sh-content-stage input:not([type="checkbox"]):not([type="radio"]),
+          .sh-content-stage textarea,
+          .sh-content-stage select{
+            border-color:#cbd8ea!important;
+            border-radius:11px!important;
+            color:#17345f!important;
+            background:#fff!important;
+            font-family:'Inter',system-ui,sans-serif!important;
+            transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+          }
+          .sh-content-stage input:not([type="checkbox"]):not([type="radio"]):focus,
+          .sh-content-stage textarea:focus,
+          .sh-content-stage select:focus{
+            border-color:#1456b8!important;
+            box-shadow:0 0 0 3px rgba(20,86,184,.11)!important;
+            outline:none!important;
+          }
+          .sh-content-stage select{min-height:44px;padding:9px 34px 9px 12px}
+          .sh-content-stage input::placeholder,.sh-content-stage textarea::placeholder{color:#8a98ac!important}
+          .sh-content-stage button{font-family:'Inter',system-ui,sans-serif}
+          .sh-content-stage [style*="borderRadius: 8"],
+          .sh-content-stage [style*="borderRadius:8"]{border-radius:11px!important}
+          .desktop .sh-content-stage{padding:0}
+          .desktop .sh-content-stage>div:not(.sh-dashboard){
+            width:100%;
+            max-width:1500px;
+            margin-left:auto;
+            margin-right:auto;
+          }
+          .mobile .sh-content-stage{
+            background:
+              linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),
+              url("/blueprint-house.jpg") center top / cover no-repeat fixed!important;
+          }
+          .mobile .sh-content-stage>div{
+            width:100%!important;
+            max-width:none!important;
+            box-sizing:border-box!important;
+          }
+          .mobile .sh-content-stage h1{font-size:26px!important}
+          .mobile .sh-content-stage h2{font-size:21px!important}
+          .mobile .sh-content-stage h3{font-size:18px!important}
+          .mobile .sh-content-stage p,
+          .mobile .sh-content-stage li{font-size:14px;line-height:1.48}
+          .mobile .sh-content-stage input:not([type="checkbox"]):not([type="radio"]),
+          .mobile .sh-content-stage textarea,
+          .mobile .sh-content-stage select{font-size:16px!important;min-height:48px}
+          .mobile .sh-content-stage button{min-height:42px}
+          .mobile .sh-content-stage [style*="font-size: 10px"],
+          .mobile .sh-content-stage [style*="fontSize: 10"]{font-size:11px!important}
+          .mobile .sh-content-stage [style*="font-size: 11px"],
+          .mobile .sh-content-stage [style*="fontSize: 11"]{font-size:12px!important}
+          .mobile .sh-content-stage [style*="font-size: 12px"],
+          .mobile .sh-content-stage [style*="fontSize: 12"]{font-size:13px!important}
+          .mobile .sh-content-stage [style*="padding: 10px"],
+          .mobile .sh-content-stage [style*="padding:10px"]{padding:12px!important}
+          .mobile .sh-content-stage [style*="border: 1px solid"],
+          .mobile .sh-content-stage [style*="border:1px solid"]{border-color:#d6e1ef!important}
+          .mobile .sh-content-stage [style*="background: rgb(255, 255, 255)"],
+          .mobile .sh-content-stage [style*="background:#fff"],
+          .mobile .sh-content-stage [style*="background: #fff"]{
+            background:rgba(255,255,255,.96)!important;
+          }
+          .sh-content-stage::-webkit-scrollbar,
+          .sh-content-stage *::-webkit-scrollbar{width:8px;height:8px}
+          .sh-content-stage::-webkit-scrollbar-thumb,
+          .sh-content-stage *::-webkit-scrollbar-thumb{background:#c5d4e7;border-radius:999px}
+          .sh-content-stage::-webkit-scrollbar-track,
+          .sh-content-stage *::-webkit-scrollbar-track{background:transparent}
+
           @media(max-width:767px){
             .mobile .sh-quick-actions-panel{display:block;margin-top:8px}
             .mobile .sh-quick-actions-grid{grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}
@@ -25294,10 +25518,10 @@ export default function App() {
             onClick={() => setShowChatbot(true)}
             style={{
               position: "absolute",
-              bottom: isDesktopView ? 42 : 54,
-              right: 8,
-              width: 92,
-              height: 92,
+              bottom: isDesktopView ? 42 : 48,
+              right: isDesktopView ? 8 : 4,
+              width: isDesktopView ? 92 : 78,
+              height: isDesktopView ? 92 : 78,
               background: "none",
               border: "none",
               cursor: "pointer",
