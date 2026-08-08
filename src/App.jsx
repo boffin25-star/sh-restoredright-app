@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-dashboard-final-v3 — Restored updated phase2g second App Hub splash; mobile nav now horizontally swipe-scrolls all permitted pages with circular icons and no More button; blueprint-house watermark restored across mobile white-screen backgrounds; mobile footer remains blue.";
+const BUILD_STAMP = "2026-08-07-math-audited — Corrected contract split rounding, 2026 mileage defaults, destination-tax safety, WA L&I hourly-premium modeling, use-tax handling, line-item-only calculations, and original-base percentage-pay rule.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1487,106 +1487,115 @@ function HubIcon({ name, size = 28, color = "#fff" }) {
 function AppHubScreen({ user, onSelect, isDesktopView }) {
   const firstName = user?.name?.split(" ")[0] || "there";
   const hubApps = getUserHubApps(user);
-
   return (
-    <div className="sh-hub-page">
-      <style>{`
-        .sh-hub-page{
-          min-height:100vh;
-          width:100%;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          padding:30px 18px;
-          font-family:'Inter',system-ui,sans-serif;
-          background:
-            linear-gradient(rgba(247,250,255,.86),rgba(247,250,255,.92)),
-            url("/blueprint-house.jpg") center center / cover no-repeat fixed;
-        }
-        .sh-hub-shell{
-          width:min(100%,${isDesktopView ? "780px" : "430px"});
-          background:rgba(255,255,255,.93);
-          border:1px solid #9FBEEC;
-          border-radius:20px;
-          padding:${isDesktopView ? "32px 36px 30px" : "24px 16px 22px"};
-          box-shadow:0 18px 50px rgba(13,59,128,.14);
-          backdrop-filter:blur(6px);
-        }
-        .sh-hub-brand{text-align:center;margin-bottom:22px}
-        .sh-hub-brand img{
-          width:min(100%,${isDesktopView ? "420px" : "300px"});
-          max-height:${isDesktopView ? "118px" : "92px"};
-          object-fit:contain;
-        }
-        .sh-hub-brand h1{margin:14px 0 4px;font-size:${isDesktopView ? "26px" : "21px"};color:#0D3B80}
-        .sh-hub-brand p{margin:0;color:#66768D;font-size:13px}
-        .sh-hub-apps{
-          display:grid;
-          grid-template-columns:${isDesktopView ? "repeat(2,minmax(0,1fr))" : "1fr"};
-          gap:12px;
-        }
-        .sh-hub-app{
-          width:100%;
-          min-height:94px;
-          background:#fff;
-          border:1px solid #9FBEEC;
-          border-radius:14px;
-          padding:15px 16px;
-          display:flex;
-          align-items:center;
-          gap:13px;
-          cursor:pointer;
-          text-align:left;
-          color:#0D3B80;
-          box-shadow:0 3px 10px rgba(13,59,128,.06);
-        }
-        .sh-hub-app:hover{background:#F3F7FD;border-color:#6F9DDE}
-        .sh-hub-icon{
-          width:50px;height:50px;border-radius:50%;
-          flex:0 0 auto;background:#0D3B80;color:#fff;
-          display:flex;align-items:center;justify-content:center;
-        }
-        .sh-hub-copy{flex:1;min-width:0}
-        .sh-hub-copy strong{display:block;color:#0D3B80;font-size:15px;margin-bottom:3px}
-        .sh-hub-copy small{display:block;color:#66768D;font-size:11px;line-height:1.35}
-        .sh-hub-arrow{color:#1456B8;font-size:24px}
-        .sh-hub-main{
-          width:100%;margin-top:14px;height:46px;border:0;border-radius:10px;
-          background:linear-gradient(90deg,#0D3B80,#1456B8);color:#fff;
-          font-weight:750;cursor:pointer;
-        }
-        .sh-hub-footer{
-          text-align:center;color:#0D3B80;font-size:11px;
-          font-weight:650;margin-top:16px;letter-spacing:.08em;
-        }
-      `}</style>
+    <div style={{
+      ...S.app,
+      minHeight: "100vh",
+      alignItems: "center",
+      justifyContent: "center",
+      background: BRAND.navy,
+    }}>
+      <div style={{
+        width: "100%",
+        maxWidth: isDesktopView ? 700 : 430,
+        minHeight: "100vh",
+        background: BRAND.offWhite,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: "40px 20px 32px",
+        boxSizing: "border-box",
+      }}>
+        <img
+          src={`data:image/png;base64,${LOGO_WIDE_B64}`}
+          alt="S&H Services"
+          style={{ width: 180, marginBottom: 18 }}
+        />
 
-      <section className="sh-hub-shell">
-        <div className="sh-hub-brand">
-          <img src="/sh-header-logo.png" alt="S&H Services — Simple | Honest" />
-          <h1>Welcome back, {firstName}!</h1>
-          <p>Choose where you'd like to go.</p>
+        <div style={{ fontSize: 22, fontWeight: 800, color: BRAND.navy, marginBottom: 4, textAlign: "center" }}>
+          Welcome back, {firstName}!
+        </div>
+        <div style={{ fontSize: 14, color: BRAND.muted, marginBottom: 32, textAlign: "center" }}>
+          Where would you like to go?
         </div>
 
-        <div className="sh-hub-apps">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
           {hubApps.map(app => (
-            <button key={app.id} className="sh-hub-app" onClick={() => onSelect(app.dest)}>
-              <span className="sh-hub-icon"><HubIcon name={app.icon} size={25} color="#fff" /></span>
-              <span className="sh-hub-copy">
-                <strong>{app.label}</strong>
-                <small>{app.subtitle}</small>
-              </span>
-              <span className="sh-hub-arrow">›</span>
+            <button
+              key={app.id}
+              onClick={() => onSelect(app.dest)}
+              style={{
+                width: "100%",
+                background: app.color,
+                border: "none",
+                borderRadius: 16,
+                padding: "20px 22px",
+                display: "flex",
+                alignItems: "center",
+                gap: 18,
+                cursor: "pointer",
+                boxShadow: "0 4px 16px rgba(27,58,107,0.18)",
+                transition: "transform 0.12s, box-shadow 0.12s",
+                textAlign: "left",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = "scale(1.025)";
+                e.currentTarget.style.boxShadow = "0 8px 24px rgba(27,58,107,0.28)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "";
+                e.currentTarget.style.boxShadow = "0 4px 16px rgba(27,58,107,0.18)";
+              }}
+            >
+              <div style={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}>
+                <HubIcon name={app.icon} size={26} color="#fff" />
+              </div>
+
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 3, letterSpacing: "-0.1px" }}>
+                  {app.label}
+                </div>
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.72)", lineHeight: 1.35 }}>
+                  {app.subtitle}
+                </div>
+              </div>
+
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="rgba(255,255,255,0.6)" strokeWidth="2.2"
+                strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
             </button>
           ))}
         </div>
 
-        <button className="sh-hub-main" onClick={() => onSelect("main")}>
-          Open S&amp;H Jobs &amp; Operations
+        <button
+          onClick={() => onSelect("main")}
+          style={{
+            marginTop: 28,
+            background: "none",
+            border: "none",
+            color: BRAND.muted,
+            fontSize: 14,
+            cursor: "pointer",
+            textDecoration: "underline",
+            textDecorationColor: "transparent",
+          }}
+          onMouseEnter={e => e.currentTarget.style.textDecorationColor = BRAND.muted}
+          onMouseLeave={e => e.currentTarget.style.textDecorationColor = "transparent"}
+        >
+          Skip — go to Jobs & Operations
         </button>
-
-        <div className="sh-hub-footer">SIMPLE &nbsp; | &nbsp; HONEST</div>
-      </section>
+      </div>
     </div>
   );
 }
@@ -2460,17 +2469,58 @@ function TabIconButton({ tab, active, onClick, badge }) {
 // the landing page. Tapping any tile navigates straight to that tab.
 function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQuickAction, isDesktopView, onOpenChatbot }) {
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [dashboardStandaloneTasks, setDashboardStandaloneTasks] = useState([]);
+
+  // Keep Dashboard "My Tasks" aligned with the real My Tasks tab:
+  // that screen combines job-linked tasks AND standalone/action-item tasks.
+  useEffect(() => {
+    let active = true;
+    async function loadDashboardStandaloneTasks() {
+      try {
+        const rows = await fetchStandaloneTasks();
+        if (active) setDashboardStandaloneTasks(rows || []);
+      } catch {
+        if (active) setDashboardStandaloneTasks([]);
+      }
+    }
+    loadDashboardStandaloneTasks();
+    return () => { active = false; };
+  }, [jobs, user?.name]);
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const firstName = user?.name?.split(" ")[0] || "there";
-  const assignedTasks = [];
+  const jobAssignedTasks = [];
   (jobs || []).forEach(j => {
     (j.jobTasks || []).forEach(t => {
-      if (!parseAssignees(t.assignedTo).includes(user?.name)) return;
+      const assignees = parseAssignees(t.assignedTo);
+      if (!assignees.includes(user?.name)) return;
       if (t.status === "Completed") return;
-      assignedTasks.push({ ...t, jobCustomer: j.customerName, jobId: j.id });
+      jobAssignedTasks.push({
+        ...t,
+        assignedTo: assignees,
+        jobCustomer: j.customerName,
+        jobId: j.id,
+        isStandalone: false,
+      });
     });
   });
+
+  const standaloneAssignedTasks = (dashboardStandaloneTasks || [])
+    .map(t => ({ ...t, assignedTo: parseAssignees(t.assignedTo), isStandalone: true }))
+    .filter(t => t.assignedTo.includes(user?.name) && t.status !== "Completed");
+
+  // Same active-task ordering philosophy as My Tasks: overdue first, then nearest follow-up/date assigned.
+  const assignedTasks = [...jobAssignedTasks, ...standaloneAssignedTasks].sort((a, b) => {
+    const now = new Date();
+    const aOver = a.followUpDate && new Date(a.followUpDate) < now && a.status !== "Completed";
+    const bOver = b.followUpDate && new Date(b.followUpDate) < now && b.status !== "Completed";
+    if (aOver && !bOver) return -1;
+    if (!aOver && bOver) return 1;
+    return (a.followUpDate || a.dateAssigned || a.createdAt || "").localeCompare(
+      b.followUpDate || b.dateAssigned || b.createdAt || ""
+    );
+  });
+
   const dueToday = assignedTasks.filter(t => (t.followUpDate || t.dueDate || "").slice(0,10) === todayKey);
   const inProgressJobs = (jobs || []).filter(j => j.status === "In Progress");
   const pendingAuthJobs = (jobs || []).filter(j => {
@@ -2494,7 +2544,7 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
     .sort((a,b) => a._d - b._d)
     .slice(0, 5);
 
-  const taskPreview = (dueToday.length ? dueToday : assignedTasks).slice(0, 5);
+  const taskPreview = assignedTasks.slice(0, isDesktopView ? 8 : 5);
 
   const metricCards = [
     { label:"My Tasks", value: assignedTasks.length, sub: dueToday.length ? `${dueToday.length} due today` : "Active tasks", icon:"tasks", tint:"#EFF6FF", ink:"#1D4ED8", tab:"tasks" },
@@ -2561,7 +2611,7 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
                   <span className="sh-dot" style={{ background:p.color }} />
                   <span className="sh-row-main">
                     <strong>{t.title}</strong>
-                    <small>{t.jobCustomer || "General task"}{t.followUpDate ? ` · ${fmtDate(t.followUpDate)}` : ""}</small>
+                    <small>{t.isStandalone ? "Action item" : (t.jobCustomer || "General task")}{t.followUpDate ? ` · ${fmtDate(t.followUpDate)}` : ""}</small>
                   </span>
                   <span className="sh-priority" style={{ color:p.color, background:p.color+"12" }}>{p.label}</span>
                 </button>
@@ -2647,26 +2697,26 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
   );
 }
 
-function SHMobileBottomNav({ tabs = [], activeTab, onSelect, taskBadge = 0 }) {
-  // Mobile navigation intentionally exposes every permitted page in one
-  // horizontally swipeable rail — no separate “More” menu.
+function SHMobileBottomNav({ activeTab, onSelect, onMore, taskBadge = 0 }) {
+  const items = [
+    { id:"home", label:"Home" },
+    { id:"tasks", label:"My Tasks" },
+    { id:"jobs", label:"Jobs" },
+    { id:"calendar", label:"Schedule" },
+  ];
   return (
-    <nav className="sh-bottom-nav" aria-label="App pages">
-      {tabs.map(t => {
-        const icon = TabIcons[t.id] || <span style={{fontSize:18}}>{t.icon}</span>;
-        return (
-          <button
-            key={t.id}
-            className={activeTab === t.id ? "active" : ""}
-            onClick={() => onSelect(t.id)}
-            aria-current={activeTab === t.id ? "page" : undefined}
-          >
-            <span className="sh-mobile-nav-circle">{icon}</span>
-            <small>{t.label}</small>
-            {t.id === "tasks" && taskBadge > 0 && <i>{taskBadge > 9 ? "9+" : taskBadge}</i>}
-          </button>
-        );
-      })}
+    <nav className="sh-bottom-nav">
+      {items.map(t => (
+        <button key={t.id} className={activeTab === t.id ? "active" : ""} onClick={() => onSelect(t.id)}>
+          <span>{TabIcons[t.id]}</span>
+          <small>{t.label}</small>
+          {t.id === "tasks" && taskBadge > 0 && <i>{taskBadge > 9 ? "9+" : taskBadge}</i>}
+        </button>
+      ))}
+      <button onClick={onMore}>
+        <span className="sh-more-dots">•••</span>
+        <small>More</small>
+      </button>
     </nav>
   );
 }
@@ -2688,6 +2738,32 @@ function SHMoreMenu({ tabs, activeTab, onSelect, onClose }) {
           ))}
         </div>
       </div>
+
+      <section className="sh-panel sh-quick-actions-panel">
+        <div className="sh-panel-head">
+          <strong>Quick Actions</strong>
+        </div>
+        <div className="sh-quick-actions-grid">
+          {canSubmitJobs(user) && (
+            <button onClick={() => onSelect("submit")}>
+              <span>{TabIcons.jobs}</span>
+              <small>New Job</small>
+            </button>
+          )}
+          <button onClick={() => onSelect("tasks")}>
+            <span>{TabIcons.tasks}</span>
+            <small>New Task</small>
+          </button>
+          <button onClick={() => onSelect("receipts")}>
+            <span>{TabIcons.receipts}</span>
+            <small>Add Receipt</small>
+          </button>
+          <button onClick={() => onSelect("mileage")}>
+            <span>{TabIcons.mileage}</span>
+            <small>Log Mileage</small>
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -12199,8 +12275,8 @@ function InvoiceGenerator({ jobs, user, onClose, onSaved }) {
         clientName: job.customerName || "",
         clientAddress: job.address || "",
         clientPhone: job.customerPhone || "",
-        depositAmount: subtotal ? String((subtotal * 0.5).toFixed(2)) : "",
-        finalAmount: subtotal ? String((subtotal * 0.5).toFixed(2)) : "",
+        depositAmount: splitContractPayments(subtotal).deposit,
+        finalAmount: splitContractPayments(subtotal).final,
         lineItems: job.scope
           ? [{ description: job.scope.slice(0, 100), qty: "1", rate: subtotal ? subtotal.toFixed(2) : "", amount: subtotal ? subtotal.toFixed(2) : "" }]
           : f.lineItems,
@@ -12633,6 +12709,19 @@ const CONTRACT_TYPES = [
   { value: "contractor", label: "Contractor / Subcontractor Agreement" },
 ];
 
+// Currency-safe 50/50 payment schedule.
+// Round the first half to cents, then calculate the final payment as the
+// exact remainder so the two payments can never exceed/fall short of total.
+function splitContractPayments(value) {
+  const total = Math.max(0, Number(value) || 0);
+  const deposit = Math.round((total * 0.5 + Number.EPSILON) * 100) / 100;
+  const final = Math.round(((total - deposit) + Number.EPSILON) * 100) / 100;
+  return {
+    deposit: total ? deposit.toFixed(2) : "",
+    final: total ? final.toFixed(2) : "",
+  };
+}
+
 function ContractGenerator({ jobs, user, onClose, onSaved }) {
   const [step, setStep] = useState("form"); // form | sign | done
   const [form, setForm] = useState({
@@ -12677,8 +12766,8 @@ function ContractGenerator({ jobs, user, onClose, onSaved }) {
         clientAddress: job.address || "",
         clientPhone: job.customerPhone || "",
         contractAmount: job.estimatedCost || "",
-        depositAmount: job.estimatedCost ? String(Math.round(Number(job.estimatedCost) * 0.5)) : "",
-        finalAmount: job.estimatedCost ? String(Math.round(Number(job.estimatedCost) * 0.5)) : "",
+        depositAmount: splitContractPayments(job.estimatedCost).deposit,
+        finalAmount: splitContractPayments(job.estimatedCost).final,
         scopeOfWork: job.scope || "",
         startDate: job.startDate || job.scheduledDate || "",
         estimatedCompletion: job.completedDate || "",
@@ -13017,8 +13106,8 @@ function ContractGenerator({ jobs, user, onClose, onSaved }) {
                   <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: BRAND.muted, fontWeight: 600 }}>$</span>
                   <input style={{ ...S.input, paddingLeft: 26 }} type="number" min="0" placeholder="0.00" value={form.contractAmount} onChange={e => {
                     const v = e.target.value;
-                    const half = String(Math.round(Number(v) * 0.5));
-                    setForm(f => ({ ...f, contractAmount: v, depositAmount: half, finalAmount: half }));
+                    const split = splitContractPayments(v);
+                    setForm(f => ({ ...f, contractAmount: v, depositAmount: split.deposit, finalAmount: split.final }));
                   }} />
                 </div>
               </div>
@@ -16975,9 +17064,19 @@ function MaterialPricesTab({ user, isDesktopView }) {
 // this). It's accurate for "open the app, drive, stop the app," which
 // covers most real use — just not a silent background tracker.
 
+function currentBusinessMileageRate(date = new Date()) {
+  // IRS 2026 business standard mileage rate:
+  // Jan 1–Jun 30: $0.725/mi; Jul 1–Dec 31: $0.76/mi.
+  // This is used only as the app's default; admins may override company policy.
+  const y = date.getFullYear();
+  if (y === 2026) return date >= new Date(2026, 6, 1) ? 0.76 : 0.725;
+  // Do not silently invent a future IRS rate. Keep the latest verified 2026
+  // default until an admin updates the company setting.
+  return 0.76;
+}
 async function fetchMileageSettings() {
   const rows = await sbFetch("mileage_settings?id=eq.default");
-  return rows?.[0] || { rate_per_mile: 0.67, fuel_price: 3.75, mpg: 18, force_tracking: false };
+  return rows?.[0] || { rate_per_mile: currentBusinessMileageRate(), fuel_price: 3.75, mpg: 18, force_tracking: false };
 }
 async function fetchTripsByJob(jobId) {
   const rows = await sbFetch(`trips?job_id=eq.${encodeURIComponent(jobId)}&order=started_at.desc`);
@@ -17021,7 +17120,7 @@ function MileageTab({ user, jobs, autoStartTrip, onConsumeAutoStart }) {
   const isAdmin = canAdmin(user);
   const [mileageView, setMileageView] = useState("mileage"); // "mileage" | "timeclock"
   const [trips, setTrips] = useState([]);
-  const [settings, setSettings] = useState({ rate_per_mile: 0.67, fuel_price: 3.75, mpg: 18 });
+  const [settings, setSettings] = useState({ rate_per_mile: currentBusinessMileageRate(), fuel_price: 3.75, mpg: 18 });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -17443,7 +17542,7 @@ function MileageTab({ user, jobs, autoStartTrip, onConsumeAutoStart }) {
     setSettingsSaving(true);
     try {
       await saveMileageSettings({
-        rate_per_mile: parseFloat(settingsForm.rate_per_mile) || 0.67,
+        rate_per_mile: parseFloat(settingsForm.rate_per_mile) || currentBusinessMileageRate(),
         fuel_price: parseFloat(settingsForm.fuel_price) || 3.75,
         mpg: parseFloat(settingsForm.mpg) || 18,
         force_tracking: !!settingsForm.force_tracking,
@@ -17614,7 +17713,7 @@ function MileageTab({ user, jobs, autoStartTrip, onConsumeAutoStart }) {
 
               <label style={S.lbl}>Default Rate ($/mile)</label>
               <input style={S.input} type="number" step="0.01" value={settingsForm.rate_per_mile} onChange={e => setSettingsForm(f => ({ ...f, rate_per_mile: e.target.value }))} />
-              <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 3 }}>IRS standard mileage rate is a common default (currently ~$0.67/mi).</div>
+              <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 3 }}>IRS 2026 business standard: $0.76/mi for Jul 1–Dec 31 (was $0.725/mi Jan 1–Jun 30). Company policy can override this default.</div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
                 <div>
@@ -21813,33 +21912,40 @@ const CALC_GOLD = "#8A9BB0";
 const CALC_BLUE = "#1B3A6B";
 const CALC_EXTRA_COLORS = ["#6B7689", "#9AA3B2", "#4B5563"];
 
-const SPOKANE_ZIP_RATES = {
-  "99201": { rate: 9.1, label: "Spokane (downtown core)" },
-  "99202": { rate: 9.1, label: "Spokane" },
-  "99203": { rate: 9.1, label: "Spokane (South Hill)" },
-  "99204": { rate: 9.1, label: "Spokane (West Central)" },
-  "99205": { rate: 8.9, label: "Spokane (North)" },
-  "99206": { rate: 9.0, label: "Spokane Valley" },
-  "99207": { rate: 8.9, label: "Spokane (Hillyard)" },
-  "99208": { rate: 8.9, label: "Spokane (North)" },
-  "99212": { rate: 9.1, label: "Spokane Valley" },
-  "99216": { rate: 9.0, label: "Spokane Valley" },
-  "99217": { rate: 9.1, label: "Spokane (Northeast)" },
-  "99218": { rate: 9.1, label: "Spokane (North)" },
-  "99223": { rate: 9.1, label: "Spokane (South)" },
-  "99224": { rate: 8.9, label: "Spokane (West Plains)" },
-  "99254": { rate: 6.5, label: "Rural Spokane County" },
-  "99258": { rate: 8.9, label: "Spokane" },
-};
+// Q3 2026 reference presets. Sales/use tax is destination-based in WA,
+// so ZIP-only auto-selection is intentionally disabled: a ZIP can cross
+// taxing jurisdictions. The user must choose/enter the exact job-location rate.
+const SPOKANE_TAX_PRESETS = [
+  { label: "Spokane City", rate: 9.1 },
+  { label: "Spokane Valley", rate: 9.0 },
+  { label: "Spokane County Unincorp. PTBA", rate: 8.9 },
+];
 
 const CALC_FIXED_DEFAULT_RATES = {
-  salesTax: 9.1, stateBO: 0.471, cityBO: 0, laborPct: 35, liRate: 6.5,
-  useTaxPct: 1.5, materialsPct: 45, overheadPct: 8, targetMarginPct: 15,
+  salesTax: 0, stateBO: 0.471, cityBO: 0, laborPct: 35,
+  liHourlyRate: 0, useTaxRate: 0, untaxedMaterialsPct: 0,
+  materialsPct: 45, overheadPct: 8, targetMarginPct: 15,
 };
 const CALC_TM_DEFAULT_RATES = {
-  salesTax: 9.1, stateBO: 0.471, cityBO: 0, liRate: 6.5,
-  useTaxPct: 1.5, overheadPct: 8, targetMarginPct: 15,
+  salesTax: 0, stateBO: 0.471, cityBO: 0,
+  liHourlyRate: 0, useTaxRate: 0, untaxedMaterialsPct: 0,
+  overheadPct: 8, targetMarginPct: 15,
 };
+
+function normalizeCalcRates(savedRates, defaults) {
+  if (!savedRates) return { ...defaults };
+  // Do not reinterpret legacy liRate=6.5 (% of wages) as $6.50/hour, and do
+  // not carry forward the legacy blanket 1.5% use-tax assumption.
+  return {
+    ...defaults,
+    ...savedRates,
+    liHourlyRate: savedRates.liHourlyRate ?? defaults.liHourlyRate,
+    useTaxRate: savedRates.useTaxRate ?? defaults.useTaxRate,
+    untaxedMaterialsPct: savedRates.untaxedMaterialsPct ?? defaults.untaxedMaterialsPct,
+    liRate: undefined,
+    useTaxPct: undefined,
+  };
+}
 
 function calcMoney(n) { if (isNaN(n)) return "$0.00"; return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
 function calcPct(n) { return `${(n || 0).toFixed(2)}%`; }
@@ -21883,8 +21989,10 @@ function calcEmployeeTakeHome(emp, jobBasis, withholdingPct, ssPct, medicarePct)
   const withheld = federal + socialSecurity + medicare;
   return { gross, federal, socialSecurity, medicare, withheld, takeHome: gross - withheld, isEstimate: true };
 }
-function calcHourlyWageBasisForLI(employees) {
-  return employees.reduce((sum, e) => (e.payType === "hourly" ? sum + calcEmployeeCost(e, 0) : sum), 0);
+function calcHourlyHoursForLI(employees) {
+  // WA L&I premiums are generally based on hours worked by risk class and the
+  // employer's current premium rate/experience factor, not a % of gross wages.
+  return employees.reduce((sum, e) => (e.payType === "hourly" ? sum + calcNum(e.hours) : sum), 0);
 }
 function calcBilledAmount(item) { return calcNum(item.cost) * (1 + calcNum(item.markupPct) / 100); }
 function newCalcLineItem(defaultMarkup) { return { id: Date.now() + Math.random(), label: "", cost: "", markupPct: defaultMarkup }; }
@@ -22015,7 +22123,7 @@ function CalcEmployeeWageBreakdown({ employees, jobBasis }) {
       )}
       {showTakeHome && (
         <div style={{ fontSize: 11, color: "#6B7689", marginBottom: 10 }}>
-          WA has no state income tax. Withholding only applies to hourly (W2-style) pay — employees paid a % of the job are treated as 1099 and handle their own taxes. This is a rough estimate, not a paycheck calculation.
+          WA has no individual state income tax. This calculator only models withholding for hourly wage rows. Percentage-paid rows show gross payout without payroll withholding; worker classification and actual payroll/tax treatment must be handled separately. This is a rough planning estimate, not a paycheck calculation.
         </div>
       )}
       {rows.map((r, idx) => (
@@ -22034,7 +22142,7 @@ function CalcEmployeeWageBreakdown({ employees, jobBasis }) {
             <div style={{ background: "#F7F8FA", borderRadius: 8, padding: "8px 10px", marginTop: 4 }}>
               <CalcMiniRow label="Gross pay" value={calcMoney(r.gross)} />
               {r.payType === "percentage" ? (
-                <CalcMiniRow label="Withholding" value="None — 1099, self-managed" muted />
+                <CalcMiniRow label="Withholding" value="Not modeled for percentage-pay rows" muted />
               ) : (
                 <>
                   <CalcMiniRow label="Federal withholding (est.)" value={`− ${calcMoney(r.federal)}`} muted />
@@ -22357,7 +22465,7 @@ function lookupZipFromAddress(address) {
 // ================= FIXED CONTRACT CALCULATOR =================
 function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName, prefilledEmployees, prefilledExtraCosts, prefilledMaterialsItems, savedState, onStateChange }) {
   const [contractTotal, setContractTotal] = useState(savedState?.contractTotal ?? "");
-  const [rates, setRates] = useState(savedState?.rates ?? CALC_FIXED_DEFAULT_RATES);
+  const [rates, setRates] = useState(() => normalizeCalcRates(savedState?.rates, CALC_FIXED_DEFAULT_RATES));
   const [showRates, setShowRates] = useState(false);
   const [laborMode, setLaborMode] = useState(savedState?.laborMode ?? (prefilledEmployees?.length ? "employees" : "percent"));
   const [employees, setEmployees] = useState(() => mergeHoursIntoEmployees(savedState?.employees || [], prefilledEmployees || []));
@@ -22390,8 +22498,14 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractTotal, rates, laborMode, employees, extraCosts, materialsItems, lineItems, globalMarkup, zip]);
 
-  const zipMatch = SPOKANE_ZIP_RATES[zip.trim()];
-  const applyZipRate = () => zipMatch && setRates(r => ({ ...r, salesTax: zipMatch.rate }));
+  const hasZip = !!zip.trim();
+  const applyTaxPreset = (rate) => setRates(r => ({
+    ...r,
+    salesTax: rate,
+    // If use tax is later needed for untaxed materials, WA use tax generally
+    // follows the same location rate. Keep zero if user intentionally set zero.
+    useTaxRate: r.useTaxRate > 0 ? r.useTaxRate : rate,
+  }));
 
   const total = calcNum(contractTotal);
 
@@ -22406,11 +22520,12 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
     const cityBO = billableRevenue * (rates.cityBO / 100);
 
     const laborCost = laborMode === "employees" ? calcTotalEmployeeCost(employees, total) : total * (rates.laborPct / 100);
-    const liWageBasis = laborMode === "employees" ? calcHourlyWageBasisForLI(employees) : laborCost;
+    const liHours = laborMode === "employees" ? calcHourlyHoursForLI(employees) : 0;
 
     const materialsCost = total * (rates.materialsPct / 100);
-    const liCost = liWageBasis * (rates.liRate / 100);
-    const useTax = materialsCost * (rates.useTaxPct / 100);
+    const liCost = liHours * calcNum(rates.liHourlyRate);
+    const untaxedMaterialsCost = materialsCost * (calcNum(rates.untaxedMaterialsPct) / 100);
+    const useTax = untaxedMaterialsCost * (calcNum(rates.useTaxRate) / 100);
     const overhead = billableRevenue * (rates.overheadPct / 100);
     const extraCostsTotal = extraCosts.reduce((s, i) => s + calcNum(i.amount), 0);
 
@@ -22421,11 +22536,11 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
     const netMarginPct = billableRevenue > 0 ? (netProfit / billableRevenue) * 100 : 0;
     const targetProfit = billableRevenue * (rates.targetMarginPct / 100);
 
-    return { salesTaxCollected, grossBilled, stateBO, cityBO, laborCost, materialsCost, liCost, useTax, overhead, extraCostsTotal, lineItemsCost, lineItemsBilled, billableRevenue, totalTaxesAndFees, totalDirectCosts, totalAllCosts, netProfit, netMarginPct, targetProfit, meetsTarget: netProfit >= targetProfit };
+    return { salesTaxCollected, grossBilled, stateBO, cityBO, laborCost, materialsCost, liHours, liCost, untaxedMaterialsCost, useTax, overhead, extraCostsTotal, lineItemsCost, lineItemsBilled, billableRevenue, totalTaxesAndFees, totalDirectCosts, totalAllCosts, netProfit, netMarginPct, targetProfit, meetsTarget: netProfit >= targetProfit };
   }, [total, rates, laborMode, employees, extraCosts, lineItems]);
 
   const pieDatasets = useMemo(() => {
-    if (total <= 0 && calc.lineItemsBilled <= 0) return {};
+    if (calc.billableRevenue <= 0) return {};
     const overall = [
       { name: "Labor", value: calc.laborCost, color: CALC_BLUE },
       { name: "Materials", value: calc.materialsCost, color: CALC_NAVY },
@@ -22488,13 +22603,11 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
           <input value={contractTotal} onChange={e => setContractTotal(e.target.value)} placeholder="25000" type="number" style={calcInputStyle} />
         </CalcField>
 
-        {zipMatch ? (
-          <div style={{ fontSize: 12, color: "#6B7689", marginTop: -6, marginBottom: 8 }}>
-            {zipMatch.label}: estimated sales tax rate {zipMatch.rate}%. <button onClick={applyZipRate} style={calcLinkBtn}>Apply this rate</button>
+        {hasZip && (
+          <div style={{ fontSize: 12, color: "#92400E", marginTop: -6, marginBottom: 8, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px" }}>
+            Sales/use tax is based on the exact job location, not ZIP alone. Choose the verified jurisdiction below or enter the exact WA DOR lookup rate.
           </div>
-        ) : zip.trim() ? (
-          <div style={{ fontSize: 12, color: "#A0623A", marginTop: -6, marginBottom: 8 }}>ZIP not in local lookup table — set the sales tax rate manually below.</div>
-        ) : null}
+        )}
 
         <button onClick={() => setShowRates(s => !s)} style={{ marginTop: 8, background: "none", border: `1px solid ${CALC_GOLD}`, color: CALC_NAVY, borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           {showRates ? "Hide" : "Adjust"} rates & assumptions
@@ -22502,16 +22615,21 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
 
         {showRates && (
           <div style={{ marginTop: 12, background: "#F7F8FA", borderRadius: 8, padding: 12 }}>
-            <CalcRateInput label="Sales tax rate (%) — collected from client" val={rates.salesTax} onChange={v => setRates(r => ({ ...r, salesTax: v }))} />
+            <CalcRateInput label="Sales tax rate (%) — exact job location" val={rates.salesTax} onChange={v => setRates(r => ({ ...r, salesTax: v }))} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "-2px 0 10px" }}>
+              {SPOKANE_TAX_PRESETS.map(p => <button key={p.label} onClick={() => applyTaxPreset(p.rate)} style={calcPillBtn(rates.salesTax === p.rate)}>{p.label} {p.rate}%</button>)}
+            </div>
+            <div style={{ fontSize: 10.5, color: "#6B7689", marginBottom: 10 }}>Q3 2026 reference presets only. Verify the exact taxable address with WA DOR before invoicing.</div>
             <CalcRateInput label="WA state B&O rate (%) — Retailing default" val={rates.stateBO} onChange={v => setRates(r => ({ ...r, stateBO: v }))} />
-            <CalcRateInput label="City of Spokane B&O rate (%) — if applicable" val={rates.cityBO} onChange={v => setRates(r => ({ ...r, cityBO: v }))} />
-            {laborMode === "percent" && <CalcRateInput label="Labor as % of contract" val={rates.laborPct} onChange={v => setRates(r => ({ ...r, laborPct: v }))} />}
-            <CalcRateInput label="L&I rate as % of hourly wages" val={rates.liRate} onChange={v => setRates(r => ({ ...r, liRate: v }))} />
-            <CalcRateInput label="Materials as % of contract" val={rates.materialsPct} onChange={v => setRates(r => ({ ...r, materialsPct: v }))} />
-            <CalcRateInput label="Use tax as % of materials" val={rates.useTaxPct} onChange={v => setRates(r => ({ ...r, useTaxPct: v }))} />
-            <CalcRateInput label="Overhead as % of contract" val={rates.overheadPct} onChange={v => setRates(r => ({ ...r, overheadPct: v }))} />
+            <CalcRateInput label="City/local B&O rate (%) — only if actually applicable" val={rates.cityBO} onChange={v => setRates(r => ({ ...r, cityBO: v }))} />
+            {laborMode === "percent" && <CalcRateInput label="Labor as % of original/base contract" val={rates.laborPct} onChange={v => setRates(r => ({ ...r, laborPct: v }))} />}
+            <CalcRateInput label="L&I premium rate ($ per employee hour) — from your current L&I rate notice" val={rates.liHourlyRate} onChange={v => setRates(r => ({ ...r, liHourlyRate: v }))} />
+            <CalcRateInput label="Materials as % of original/base contract" val={rates.materialsPct} onChange={v => setRates(r => ({ ...r, materialsPct: v }))} />
+            <CalcRateInput label="Materials with NO sales tax paid (%)" val={rates.untaxedMaterialsPct} onChange={v => setRates(r => ({ ...r, untaxedMaterialsPct: v }))} />
+            <CalcRateInput label="Use tax rate (%) on those untaxed materials" val={rates.useTaxRate} onChange={v => setRates(r => ({ ...r, useTaxRate: v }))} />
+            <CalcRateInput label="Overhead as % of total billable revenue" val={rates.overheadPct} onChange={v => setRates(r => ({ ...r, overheadPct: v }))} />
             <CalcRateInput label="Target profit margin (%)" val={rates.targetMarginPct} onChange={v => setRates(r => ({ ...r, targetMarginPct: v }))} />
-            <div style={{ fontSize: 11, color: "#6B7689", marginTop: 6 }}>Defaults are estimates for general reference, not tax or accounting advice — confirm current rates with WA DOR, L&I, and your accountant.</div>
+            <div style={{ fontSize: 11, color: "#6B7689", marginTop: 6 }}>Sales/use tax and L&I are intentionally not guessed. Enter verified job-location tax rates and your company’s current L&I $/hour premium rate.</div>
           </div>
         )}
 
@@ -22536,7 +22654,7 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
         </div>
       </div>
 
-      {total > 0 && (
+      {calc.billableRevenue > 0 && (
         <>
           <CalcSectionCard title="What you bill the client">
             <CalcRow label="Contract amount" value={calcMoney(total)} />
@@ -22548,8 +22666,8 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
           <CalcSectionCard title="Taxes & statutory costs">
             <CalcRow label={`WA State B&O (${calcPct(rates.stateBO)})`} value={calcMoney(calc.stateBO)} indent />
             {rates.cityBO > 0 && <CalcRow label={`City of Spokane B&O (${calcPct(rates.cityBO)})`} value={calcMoney(calc.cityBO)} indent />}
-            <CalcRow label={`L&I premiums (${calcPct(rates.liRate)} of hourly wages)`} value={calcMoney(calc.liCost)} indent />
-            <CalcRow label={`Use tax (${calcPct(rates.useTaxPct)} of materials)`} value={calcMoney(calc.useTax)} indent />
+            <CalcRow label={`L&I premiums (${calcMoney(calcNum(rates.liHourlyRate))}/employee hr × ${calc.liHours.toFixed(2)} hrs)`} value={calcMoney(calc.liCost)} indent />
+            <CalcRow label={`Use tax (${calcPct(rates.useTaxRate)} on ${calcPct(rates.untaxedMaterialsPct)} of materials)`} value={calcMoney(calc.useTax)} indent />
             <CalcRow label="Total taxes & statutory costs" value={calcMoney(calc.totalTaxesAndFees)} bold />
           </CalcSectionCard>
 
@@ -22567,7 +22685,7 @@ function FixedContractCalculator({ address, zip, setZip, lockedAddress, jobName,
           <CalcPieTabs datasets={pieDatasets} activeTab={activeTab} setActiveTab={setActiveTab} tabs={CALC_PIE_TABS} />
         </>
       )}
-      {total <= 0 && <div style={{ textAlign: "center", color: "#9AA3B2", fontSize: 13, padding: 30 }}>Enter a contract amount above to see the breakdown.</div>}
+      {calc.billableRevenue <= 0 && <div style={{ textAlign: "center", color: "#9AA3B2", fontSize: 13, padding: 30 }}>Enter a contract amount or one-off billed line item above to see the breakdown.</div>}
     </div>
   );
 }
@@ -22578,7 +22696,7 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
   const [totalHours, setTotalHours] = useState(savedState?.totalHours ?? "");
   const [materialsBilled, setMaterialsBilled] = useState(savedState?.materialsBilled ?? "");
   const [materialsCostInput, setMaterialsCostInput] = useState(prefilledMaterialsCost != null ? String(prefilledMaterialsCost) : (savedState?.materialsCostInput ?? ""));
-  const [rates, setRates] = useState(savedState?.rates ?? CALC_TM_DEFAULT_RATES);
+  const [rates, setRates] = useState(() => normalizeCalcRates(savedState?.rates, CALC_TM_DEFAULT_RATES));
   const [showRates, setShowRates] = useState(false);
   const [employees, setEmployees] = useState(() => {
     const merged = mergeHoursIntoEmployees(savedState?.employees || [], prefilledEmployees || []);
@@ -22633,8 +22751,14 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billRate, totalHours, materialsBilled, materialsCostInput, rates, employees, extraCosts, materialsItems, lineItems, globalMarkup, zip]);
 
-  const zipMatch = SPOKANE_ZIP_RATES[zip.trim()];
-  const applyZipRate = () => zipMatch && setRates(r => ({ ...r, salesTax: zipMatch.rate }));
+  const hasZip = !!zip.trim();
+  const applyTaxPreset = (rate) => setRates(r => ({
+    ...r,
+    salesTax: rate,
+    // If use tax is later needed for untaxed materials, WA use tax generally
+    // follows the same location rate. Keep zero if user intentionally set zero.
+    useTaxRate: r.useTaxRate > 0 ? r.useTaxRate : rate,
+  }));
 
   const laborRevenue = calcNum(billRate) * calcNum(totalHours);
   const materialsRevenue = calcNum(materialsBilled);
@@ -22650,11 +22774,14 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
     const stateBO = billableRevenue * (rates.stateBO / 100);
     const cityBO = billableRevenue * (rates.cityBO / 100);
 
+    // Percentage-paid rows are intentionally based on ORIGINAL/BASE job
+    // revenue only (labor + materials), excluding one-off/additional line items.
     const employeeCostTotal = calcTotalEmployeeCost(employees, revenue);
-    const liWageBasis = calcHourlyWageBasisForLI(employees);
+    const liHours = calcHourlyHoursForLI(employees);
     const materialsCost = calcNum(materialsCostInput);
-    const liCost = liWageBasis * (rates.liRate / 100);
-    const useTax = materialsCost * (rates.useTaxPct / 100);
+    const liCost = liHours * calcNum(rates.liHourlyRate);
+    const untaxedMaterialsCost = materialsCost * (calcNum(rates.untaxedMaterialsPct) / 100);
+    const useTax = untaxedMaterialsCost * (calcNum(rates.useTaxRate) / 100);
     const overhead = billableRevenue * (rates.overheadPct / 100);
     const extraCostsTotal = extraCosts.reduce((s, i) => s + calcNum(i.amount), 0);
 
@@ -22665,11 +22792,11 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
     const netMarginPct = billableRevenue > 0 ? (netProfit / billableRevenue) * 100 : 0;
     const targetProfit = billableRevenue * (rates.targetMarginPct / 100);
 
-    return { salesTaxCollected, grossBilled, stateBO, cityBO, employeeCostTotal, materialsCost, liCost, useTax, overhead, extraCostsTotal, lineItemsCost, lineItemsBilled, billableRevenue, totalTaxesAndFees, totalDirectCosts, totalAllCosts, netProfit, netMarginPct, targetProfit, meetsTarget: netProfit >= targetProfit };
+    return { salesTaxCollected, grossBilled, stateBO, cityBO, employeeCostTotal, materialsCost, liHours, liCost, untaxedMaterialsCost, useTax, overhead, extraCostsTotal, lineItemsCost, lineItemsBilled, billableRevenue, totalTaxesAndFees, totalDirectCosts, totalAllCosts, netProfit, netMarginPct, targetProfit, meetsTarget: netProfit >= targetProfit };
   }, [revenue, rates, employees, materialsCostInput, extraCosts, lineItems]);
 
   const pieDatasets = useMemo(() => {
-    if (revenue <= 0) return {};
+    if (calc.billableRevenue <= 0) return {};
     const employeeSlices = employees.map((e, i) => ({ name: e.name || `Employee ${i + 1}`, value: calcEmployeeCost(e, revenue), color: [CALC_BLUE, CALC_NAVY, "#3B6FB5"][i % 3] })).filter(d => d.value > 0);
     const overall = [
       ...employeeSlices,
@@ -22748,13 +22875,11 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
           </div>
         </div>
 
-        {zipMatch ? (
-          <div style={{ fontSize: 12, color: "#6B7689", marginTop: -6, marginBottom: 8 }}>
-            {zipMatch.label}: estimated sales tax rate {zipMatch.rate}%. <button onClick={applyZipRate} style={calcLinkBtn}>Apply this rate</button>
+        {hasZip && (
+          <div style={{ fontSize: 12, color: "#92400E", marginTop: -6, marginBottom: 8, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px" }}>
+            Sales/use tax is based on the exact job location, not ZIP alone. Choose the verified jurisdiction below or enter the exact WA DOR lookup rate.
           </div>
-        ) : zip.trim() ? (
-          <div style={{ fontSize: 12, color: "#A0623A", marginTop: -6, marginBottom: 8 }}>ZIP not in local lookup table — set the sales tax rate manually below.</div>
-        ) : null}
+        )}
 
         <button onClick={() => setShowRates(s => !s)} style={{ marginTop: 8, background: "none", border: `1px solid ${CALC_GOLD}`, color: CALC_NAVY, borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           {showRates ? "Hide" : "Adjust"} rates & assumptions
@@ -22762,19 +22887,24 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
 
         {showRates && (
           <div style={{ marginTop: 12, background: "#F7F8FA", borderRadius: 8, padding: 12 }}>
-            <CalcRateInput label="Sales tax rate (%) — collected from client" val={rates.salesTax} onChange={v => setRates(r => ({ ...r, salesTax: v }))} />
+            <CalcRateInput label="Sales tax rate (%) — exact job location" val={rates.salesTax} onChange={v => setRates(r => ({ ...r, salesTax: v }))} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "-2px 0 10px" }}>
+              {SPOKANE_TAX_PRESETS.map(p => <button key={p.label} onClick={() => applyTaxPreset(p.rate)} style={calcPillBtn(rates.salesTax === p.rate)}>{p.label} {p.rate}%</button>)}
+            </div>
+            <div style={{ fontSize: 10.5, color: "#6B7689", marginBottom: 10 }}>Q3 2026 reference presets only. Verify the exact taxable address with WA DOR before invoicing.</div>
             <CalcRateInput label="WA state B&O rate (%) — Retailing default" val={rates.stateBO} onChange={v => setRates(r => ({ ...r, stateBO: v }))} />
-            <CalcRateInput label="City of Spokane B&O rate (%) — if applicable" val={rates.cityBO} onChange={v => setRates(r => ({ ...r, cityBO: v }))} />
-            <CalcRateInput label="L&I rate as % of hourly wages" val={rates.liRate} onChange={v => setRates(r => ({ ...r, liRate: v }))} />
-            <CalcRateInput label="Use tax as % of materials cost" val={rates.useTaxPct} onChange={v => setRates(r => ({ ...r, useTaxPct: v }))} />
-            <CalcRateInput label="Overhead as % of revenue" val={rates.overheadPct} onChange={v => setRates(r => ({ ...r, overheadPct: v }))} />
+            <CalcRateInput label="City/local B&O rate (%) — only if actually applicable" val={rates.cityBO} onChange={v => setRates(r => ({ ...r, cityBO: v }))} />
+            <CalcRateInput label="L&I premium rate ($ per employee hour) — from your current L&I rate notice" val={rates.liHourlyRate} onChange={v => setRates(r => ({ ...r, liHourlyRate: v }))} />
+            <CalcRateInput label="Materials with NO sales tax paid (%)" val={rates.untaxedMaterialsPct} onChange={v => setRates(r => ({ ...r, untaxedMaterialsPct: v }))} />
+            <CalcRateInput label="Use tax rate (%) on those untaxed materials" val={rates.useTaxRate} onChange={v => setRates(r => ({ ...r, useTaxRate: v }))} />
+            <CalcRateInput label="Overhead as % of total billable revenue" val={rates.overheadPct} onChange={v => setRates(r => ({ ...r, overheadPct: v }))} />
             <CalcRateInput label="Target profit margin (%)" val={rates.targetMarginPct} onChange={v => setRates(r => ({ ...r, targetMarginPct: v }))} />
-            <div style={{ fontSize: 11, color: "#6B7689", marginTop: 6 }}>Defaults are estimates for general reference, not tax or accounting advice — confirm current rates with WA DOR, L&I, and your accountant.</div>
+            <div style={{ fontSize: 11, color: "#6B7689", marginTop: 6 }}>Sales/use tax and L&I are intentionally not guessed. Enter verified job-location tax rates and your company’s current L&I $/hour premium rate.</div>
           </div>
         )}
 
         <div style={{ marginTop: 14 }}>
-          <CalcEmployeeEditor employees={employees} setEmployees={setEmployees} jobBasisLabel="total job revenue" hasLoggedHours={!!(prefilledEmployees && prefilledEmployees.length)} />
+          <CalcEmployeeEditor employees={employees} setEmployees={setEmployees} jobBasisLabel="original/base job revenue (labor + materials only; excludes one-off/additional line items)" hasLoggedHours={!!(prefilledEmployees && prefilledEmployees.length)} />
         </div>
         <div style={{ marginTop: 14 }}><CalcLineItemsEditor lineItems={lineItems} setLineItems={setLineItems} globalMarkup={globalMarkup} setGlobalMarkup={setGlobalMarkup} /></div>
         <div style={{ marginTop: 14 }}>
@@ -22783,7 +22913,7 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
         </div>
       </div>
 
-      {revenue > 0 && (
+      {calc.billableRevenue > 0 && (
         <>
           <CalcSectionCard title="What you bill the client">
             <CalcRow label={`Labor (${calcNum(totalHours)} hrs × ${calcMoney(calcNum(billRate))}/hr)`} value={calcMoney(laborRevenue)} />
@@ -22797,14 +22927,14 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
           <CalcSectionCard title="Taxes & statutory costs">
             <CalcRow label={`WA State B&O (${calcPct(rates.stateBO)})`} value={calcMoney(calc.stateBO)} indent />
             {rates.cityBO > 0 && <CalcRow label={`City of Spokane B&O (${calcPct(rates.cityBO)})`} value={calcMoney(calc.cityBO)} indent />}
-            <CalcRow label={`L&I premiums (${calcPct(rates.liRate)} of hourly wages)`} value={calcMoney(calc.liCost)} indent />
-            <CalcRow label={`Use tax (${calcPct(rates.useTaxPct)} of materials cost)`} value={calcMoney(calc.useTax)} indent />
+            <CalcRow label={`L&I premiums (${calcMoney(calcNum(rates.liHourlyRate))}/employee hr × ${calc.liHours.toFixed(2)} hrs)`} value={calcMoney(calc.liCost)} indent />
+            <CalcRow label={`Use tax (${calcPct(rates.useTaxRate)} on ${calcPct(rates.untaxedMaterialsPct)} of materials cost)`} value={calcMoney(calc.useTax)} indent />
             <CalcRow label="Total taxes & statutory costs" value={calcMoney(calc.totalTaxesAndFees)} bold />
           </CalcSectionCard>
 
           <CalcSectionCard title="Direct job costs">
             {employees.filter(e => calcEmployeeCost(e, revenue) > 0).map((e, i) => (
-              <CalcRow key={e.id} label={`${e.name || `Employee ${i + 1}`} (${e.payType === "hourly" ? `${calcMoney(calcNum(e.wage))}/hr × ${calcNum(e.hours)} hrs` : `${calcNum(e.percent)}% of job`})`} value={calcMoney(calcEmployeeCost(e, revenue))} indent />
+              <CalcRow key={e.id} label={`${e.name || `Employee ${i + 1}`} (${e.payType === "hourly" ? `${calcMoney(calcNum(e.wage))}/hr × ${calcNum(e.hours)} hrs` : `${calcNum(e.percent)}% of original/base job`})`} value={calcMoney(calcEmployeeCost(e, revenue))} indent />
             ))}
             <CalcRow label={`Materials (your cost)${(prefilledMaterialsItems && prefilledMaterialsItems.length) ? " — from breakdown" : ""}`} value={calcMoney(calc.materialsCost)} indent />
             <CalcRow label={`Overhead allocation (${calcPct(rates.overheadPct)})`} value={calcMoney(calc.overhead)} indent />
@@ -22818,7 +22948,7 @@ function TimeAndMaterialCalculator({ address, zip, setZip, lockedAddress, jobNam
           <CalcPieTabs datasets={pieDatasets} activeTab={activeTab} setActiveTab={setActiveTab} tabs={CALC_PIE_TABS} />
         </>
       )}
-      {revenue <= 0 && <div style={{ textAlign: "center", color: "#9AA3B2", fontSize: 13, padding: 30 }}>Enter a billed rate and hours (and/or materials billed) above to see the breakdown.</div>}
+      {calc.billableRevenue <= 0 && <div style={{ textAlign: "center", color: "#9AA3B2", fontSize: 13, padding: 30 }}>Enter billed labor/materials or a one-off billed line item above to see the breakdown.</div>}
     </div>
   );
 }
@@ -24236,7 +24366,7 @@ export default function App() {
   const [tab, setTab]     = useState("home");
   const [showMobileMore, setShowMobileMore] = useState(false);
   const [shellSearch, setShellSearch] = useState("");
-  const [showAppHub, setShowAppHub] = useState(false); // redesigned flow lands directly on Dashboard; App Hub remains available for later placement under More
+  const [showAppHub, setShowAppHub] = useState(true); // restore the second App Hub splash after login before entering the main dashboard
   // Set by the Home screen's Quick Actions panel for the two actions that
   // need a real tab to do safely (mileage's GPS tracking only exists while
   // that tab is mounted; receipts just reuses its own Add form) — the tab
@@ -24257,6 +24387,7 @@ export default function App() {
   // moment to have Erik pop up with a quick walkthrough of the basics.
   function handleLogin(u, opts) {
     setUser(u, opts?.remember !== false);
+    setShowAppHub(true);
     if (opts?.firstLogin) {
       setShowChatbot(true);
       setChatbotOnboarding(true);
@@ -24733,7 +24864,7 @@ export default function App() {
             overflow:hidden;
           }
           .desktop .sh-main-workspace{flex:1;margin:0;border-right:0;padding-top:82px;max-width:none}
-          .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0;background:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg") center top / cover no-repeat fixed}
+          .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0}
           .sh-sidebar{width:218px;background:linear-gradient(180deg,#0b3b84 0%,#0d4d9f 58%,#7aa4d8 82%,#ffffff 100%);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:3px 0 16px rgba(8,43,96,.10);padding-top:90px;position:relative;overflow:hidden}
                     .sh-sidebar-nav{padding:18px 0 150px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;position:relative;z-index:2}
           .sh-side-item{position:relative;border:0;background:transparent;color:rgba(255,255,255,.95);border-radius:10px 0 0 10px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:11px;font-weight:650;text-align:left;cursor:pointer;overflow:hidden}
@@ -24766,29 +24897,33 @@ export default function App() {
           .sh-dashboard{flex:1;overflow-y:auto;padding:18px;background:rgba(255,255,255,.12)}
           .sh-dash-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;position:relative}
           .sh-dash-hero:after{display:none}
-          .sh-dash-title{font-size:20px;font-weight:800;color:#0d3b80}.sh-dash-subtitle{font-size:10px;color:#66768d;margin-top:3px}
-          .sh-dash-actions{display:flex;gap:8px}.sh-action-primary,.sh-action-secondary{height:34px;border-radius:7px;padding:0 13px;font-size:10px;font-weight:750;cursor:pointer}
+          .sh-dash-title{font-size:27px;font-weight:800;color:#0d3b80;letter-spacing:-.02em}.sh-dash-subtitle{font-size:13px;color:#66768d;margin-top:5px}
+          .sh-dash-actions{display:flex;gap:10px}.sh-action-primary,.sh-action-secondary{height:42px;border-radius:9px;padding:0 17px;font-size:12px;font-weight:750;cursor:pointer}
           .sh-action-primary{border:0;background:#0d3b80;color:#fff}.sh-action-secondary{border:1px solid #cfd9e8;background:#fff;color:#0d3b80}
-          .sh-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
-          .sh-metric-card{min-height:76px;background:#fff;border:1px solid #dce4ef;border-radius:9px;padding:10px;box-shadow:0 2px 8px rgba(13,59,128,.055);display:grid;grid-template-columns:34px auto 1fr;align-items:center;gap:8px;text-align:left;cursor:pointer}
-          .sh-metric-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center}.sh-metric-icon span{width:18px;height:18px;display:block}
-          .sh-metric-number{font-size:18px;font-weight:800;color:#17345f}.sh-metric-copy{display:flex;flex-direction:column}.sh-metric-copy strong{font-size:9px}.sh-metric-copy small{font-size:7.5px;color:#66768d;margin-top:2px;line-height:1.2}
-          .sh-dash-columns{display:grid;grid-template-columns:1.05fr 1.1fr .95fr;gap:10px}
-          .sh-panel{background:#fff;border:1px solid #dce4ef;border-radius:9px;box-shadow:0 2px 8px rgba(13,59,128,.045);overflow:hidden;min-width:0}
-          .sh-panel-head{height:38px;padding:0 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6ebf2}.sh-panel-head strong{font-size:10px;color:#17345f}.sh-panel-head button{border:0;background:transparent;color:#1456b8;font-size:8px;font-weight:700;cursor:pointer}
-          .sh-panel-body{padding:4px 7px 7px}
-          .sh-list-row,.sh-job-row,.sh-schedule-row{width:100%;border:0;background:#fff;border-bottom:1px solid #edf1f6;padding:8px 5px;display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.sh-list-row:last-child,.sh-job-row:last-child,.sh-schedule-row:last-child{border-bottom:0}
+          .sh-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+          .sh-metric-card{min-height:108px;background:rgba(255,255,255,.96);border:1px solid #dce4ef;border-radius:12px;padding:16px;box-shadow:0 4px 14px rgba(13,59,128,.075);display:grid;grid-template-columns:46px auto 1fr;align-items:center;gap:12px;text-align:left;cursor:pointer}
+          .sh-metric-icon{width:46px;height:46px;border-radius:11px;display:grid;place-items:center}.sh-metric-icon span{width:24px;height:24px;display:block}.sh-metric-icon svg{width:24px;height:24px}
+          .sh-metric-number{font-size:26px;font-weight:800;color:#17345f}.sh-metric-copy{display:flex;flex-direction:column}.sh-metric-copy strong{font-size:12px}.sh-metric-copy small{font-size:10px;color:#66768d;margin-top:3px;line-height:1.3}
+          .sh-dash-columns{display:grid;grid-template-columns:1.05fr 1.1fr .95fr;gap:14px}
+          .sh-panel{background:rgba(255,255,255,.96);border:1px solid #dce4ef;border-radius:12px;box-shadow:0 4px 14px rgba(13,59,128,.06);overflow:hidden;min-width:0}
+          .sh-panel-head{height:50px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6ebf2}.sh-panel-head strong{font-size:13px;color:#17345f}.sh-panel-head button{border:0;background:transparent;color:#1456b8;font-size:10px;font-weight:700;cursor:pointer}
+          .sh-panel-body{padding:6px 10px 10px}
+          .sh-list-row,.sh-job-row,.sh-schedule-row{width:100%;border:0;background:transparent;border-bottom:1px solid #edf1f6;padding:13px 8px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer}.sh-list-row:last-child,.sh-job-row:last-child,.sh-schedule-row:last-child{border-bottom:0}
           .sh-list-row:hover,.sh-job-row:hover,.sh-schedule-row:hover{background:#f9fbfd}
-          .sh-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}.sh-row-main{min-width:0;flex:1;display:flex;flex-direction:column}.sh-row-main strong{font-size:9px;color:#17345f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sh-row-main small{font-size:7.5px;color:#66768d;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-          .sh-priority{font-size:7px;font-weight:700;border-radius:5px;padding:3px 5px}.sh-status-pill{font-size:7px;font-weight:700;border:1px solid;border-radius:5px;padding:3px 5px;white-space:nowrap}
-          .sh-schedule-date{width:38px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:8px;color:#0d3b80}.sh-schedule-date small{font-size:7px;color:#66768d;margin-top:2px}
-          .sh-empty{font-size:9px;color:#8a98ac;text-align:center;padding:22px 8px}
+          .sh-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}.sh-row-main{min-width:0;flex:1;display:flex;flex-direction:column}.sh-row-main strong{font-size:12px;color:#17345f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sh-row-main small{font-size:10px;color:#66768d;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .sh-priority{font-size:9px;font-weight:700;border-radius:6px;padding:5px 7px}.sh-status-pill{font-size:9px;font-weight:700;border:1px solid;border-radius:6px;padding:5px 7px;white-space:nowrap}
+          .sh-schedule-date{width:48px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:11px;color:#0d3b80}.sh-schedule-date small{font-size:9px;color:#66768d;margin-top:3px}
+          .sh-empty{font-size:11px;color:#8a98ac;text-align:center;padding:30px 10px}
+          .sh-quick-actions-panel{margin-top:10px}
+          .sh-quick-actions-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;padding:14px}
+          .sh-quick-actions-grid button{border:1px solid #dce4ef;background:#fff;border-radius:11px;min-height:92px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#0d3b80;cursor:pointer;box-shadow:0 3px 9px rgba(13,59,128,.055)}
+          .sh-quick-actions-grid button span{width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+          .sh-quick-actions-grid button svg{width:30px;height:30px}
+          .sh-quick-actions-grid button small{font-size:10px;font-weight:700}
+
           
-          .sh-bottom-nav{position:relative;left:auto;transform:none;bottom:auto;width:100%;height:78px;background:linear-gradient(90deg,#0d3b80,#104aa0);border:0;display:flex;align-items:stretch;z-index:110;padding:0 8px;flex-shrink:0;box-shadow:0 3px 10px rgba(13,59,128,.14);overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-          .sh-bottom-nav::-webkit-scrollbar{display:none}
-          .sh-bottom-nav button{flex:0 0 78px;min-width:78px;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative;padding:4px 3px;scroll-snap-align:start}
-          .sh-bottom-nav .sh-mobile-nav-circle{width:38px;height:38px;border:1.6px solid rgba(255,255,255,.96);border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(255,255,255,.04);box-sizing:border-box}
-          .sh-bottom-nav svg{width:20px;height:20px}.sh-bottom-nav small{font-size:7.5px;font-weight:650;color:#fff;white-space:nowrap;max-width:74px;overflow:hidden;text-overflow:ellipsis}.sh-bottom-nav button.active .sh-mobile-nav-circle{background:#fff;color:#0d3b80;box-shadow:0 2px 8px rgba(0,0,0,.16)}.sh-bottom-nav button.active small{font-weight:800}.sh-bottom-nav button i{position:absolute;top:5px;right:13px;background:#ef4444;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}
+          .sh-bottom-nav{position:relative;left:auto;transform:none;bottom:auto;width:100%;height:70px;background:linear-gradient(90deg,#0d3b80,#104aa0);border:0;display:flex;z-index:110;padding:0 4px;flex-shrink:0;box-shadow:0 3px 10px rgba(13,59,128,.14)}
+          .sh-bottom-nav button{flex:1;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative;padding:3px 0}.sh-bottom-nav button>span{width:34px;height:34px;border:1.4px solid rgba(255,255,255,.9);border-radius:50%;display:grid;place-items:center;color:#fff}.sh-bottom-nav svg{width:19px;height:19px}.sh-bottom-nav small{font-size:8px;font-weight:650;color:#fff}.sh-bottom-nav button.active>span{background:#fff;color:#0d3b80;box-shadow:0 2px 8px rgba(0,0,0,.15)}.sh-bottom-nav button.active small{font-weight:800}.sh-bottom-nav button i{position:absolute;top:2px;right:20%;background:#ef4444;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}.sh-more-dots{font-size:17px;line-height:12px;font-weight:800}
           .sh-more-backdrop{position:fixed;inset:0;background:rgba(8,43,96,.34);z-index:180;display:flex;align-items:flex-end;justify-content:center}
           .sh-more-sheet{width:min(100%,430px);max-height:76vh;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 30px rgba(13,59,128,.18);overflow-y:auto}
           .sh-more-handle{width:38px;height:4px;border-radius:99px;background:#d6dee9;margin:3px auto 9px}.sh-more-title{display:flex;align-items:center;justify-content:space-between;padding:2px 3px 10px}.sh-more-title strong{font-size:16px;color:#0d3b80}.sh-more-title button{border:0;background:#f1f5f9;width:28px;height:28px;border-radius:50%;font-size:17px}
@@ -24796,15 +24931,31 @@ export default function App() {
 
           .sh-app-footer{min-height:38px;background:rgba(255,255,255,.96);border-top:3px solid #0d3b80;display:flex;align-items:center;justify-content:center;gap:16px;padding:7px 18px;color:#0d3b80;font-size:9px;flex-shrink:0;position:relative}.sh-app-footer b{font-size:8px}.sh-footer-version{position:absolute;right:18px}
           @media(max-width:767px){
+            .mobile .sh-quick-actions-panel{display:block;margin-top:8px}
+            .mobile .sh-quick-actions-grid{grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}
+            .mobile .sh-quick-actions-grid button{min-height:62px}
+
+            .mobile footer,
+            .mobile .app-footer,
+            .mobile [class*="footer"],
+            .mobile [style*="border-top"]{
+              background:#0D3B80 !important;
+              color:#FFFFFF !important;
+              border-top-color:#0D3B80 !important;
+            }
+            .mobile footer *,
+            .mobile .app-footer *,
+            .mobile [class*="footer"] *{
+              color:#FFFFFF !important;
+            }
+
             .sh-topbar{height:74px;padding:0 12px;gap:8px;position:relative;top:auto;left:auto;right:auto;border-bottom:0;box-shadow:none}.sh-mobile-brand{display:flex;align-items:center;width:165px;flex-shrink:0}.sh-mobile-brand img{width:155px;max-height:54px;object-fit:contain;object-position:left center}
             .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:7px}
-            .sh-dashboard{padding:12px 10px 18px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:10px}.sh-dash-title{font-size:16px}.sh-dash-subtitle{font-size:8px}.sh-dash-actions{display:none}
+            .sh-dashboard{padding:15px 12px 20px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:12px}.sh-dash-title{font-size:19px}.sh-dash-subtitle{font-size:10px;line-height:1.35}.sh-dash-actions{display:none}
             .sh-dash-hero:after{font-size:34px;left:42%;top:-4px}
-            .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:7px}.sh-metric-card{min-height:66px;padding:8px;grid-template-columns:30px auto 1fr;gap:6px}.sh-metric-icon{width:30px;height:30px}.sh-metric-number{font-size:16px}.sh-metric-copy strong{font-size:8px}.sh-metric-copy small{font-size:6.8px}
-            .sh-dash-columns{grid-template-columns:1fr;gap:8px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:34px}.sh-list-row{padding:8px 5px}.sh-row-main strong{font-size:8.5px}.sh-row-main small{font-size:7px}
-            .sh-erik-card{display:none}.sh-app-footer{min-height:36px;padding:7px 8px;gap:5px;font-size:6.5px;flex-wrap:wrap;background:linear-gradient(90deg,#0d3b80,#104aa0);color:#fff;border-top:0}.sh-footer-version{position:static;color:#fff}
-            .mobile .sh-content-stage{background:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg") center top / cover no-repeat fixed}
-            .mobile .sh-content-stage>div:first-child{background-image:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg")!important;background-size:cover!important;background-position:center top!important;background-attachment:fixed!important}
+            .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:8px}.sh-metric-card{min-height:82px;padding:10px;grid-template-columns:34px auto 1fr;gap:7px}.sh-metric-icon{width:34px;height:34px}.sh-metric-number{font-size:19px}.sh-metric-copy strong{font-size:9px}.sh-metric-copy small{font-size:7.5px}
+            .sh-dash-columns{grid-template-columns:1fr;gap:9px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:42px}.sh-panel-head strong{font-size:11px}.sh-panel-head button{font-size:9px}.sh-list-row{padding:11px 6px}.sh-row-main strong{font-size:11px}.sh-row-main small{font-size:9px}
+            .sh-erik-card{display:none}.sh-app-footer{min-height:32px;padding:6px 8px;gap:5px;font-size:6.5px;flex-wrap:wrap}.sh-footer-version{position:static}
           }
         `}</style>
         <OfflineBanner />
@@ -25145,9 +25296,9 @@ export default function App() {
         </div>
         {!isDesktopView && (
           <SHMobileBottomNav
-            tabs={tabs}
             activeTab={tab}
             onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }}
+            onMore={() => setShowMobileMore(true)}
             taskBadge={(allNotifs.newTasks?.length || 0) + (allNotifs.followUps?.length || 0)}
           />
         )}
@@ -25190,7 +25341,7 @@ export default function App() {
           </div>
         ) : (
           <AppErrorBoundary>
-          <div className="sh-content-stage" style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} isDesktopView={isDesktopView} onOpenChatbot={() => setShowChatbot(true)} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} onCheckScheduleConflict={brCheckScheduleConflict} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
@@ -25223,6 +25374,7 @@ export default function App() {
           <span>RestoredRight System™</span>
           <span className="sh-footer-version">v2.5.1</span>
         </footer>
+        {showMobileMore && <SHMoreMenu tabs={tabs} activeTab={tab} onSelect={setTab} onClose={() => setShowMobileMore(false)} />}
       </div>
     </div>
     </UserCtx.Provider>
