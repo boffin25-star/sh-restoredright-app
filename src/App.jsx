@@ -12,7 +12,7 @@ const HOLDUP_IMG = "/holdup.png";
 const DESKTOP_BOX_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgNTIwIj4KPHJlY3QgeD0iMTgiIHk9IjE4IiB3aWR0aD0iNDg0IiBoZWlnaHQ9IjQ4NCIgcng9IjgiIGZpbGw9IiMwRDNCODAiLz4KPHJlY3QgeD0iMzYiIHk9IjM2IiB3aWR0aD0iNDQ4IiBoZWlnaHQ9IjQ0OCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIvPgo8cmVjdCB4PSI1MSIgeT0iNTEiIHdpZHRoPSI0MTgiIGhlaWdodD0iNDE4IiByeD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjMiLz4KPHRleHQgeD0iMjYwIiB5PSIyNTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNTAiIGZvbnQtd2VpZ2h0PSI3MDAiPlMmYW1wO0g8L3RleHQ+CjxsaW5lIHgxPSI5MyIgeTE9IjI4OCIgeDI9IjQyNyIgeTI9IjI4OCIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjUiLz4KPHRleHQgeD0iMjYwIiB5PSIzNjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSI1OCIgZm9udC13ZWlnaHQ9IjcwMCIgbGV0dGVyLXNwYWNpbmc9IjUiPlNFUlZJQ0VTPC90ZXh0Pgo8bGluZSB4MT0iOTUiIHkxPSIzOTEiIHgyPSI0MjUiIHkyPSIzOTEiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cjx0ZXh0IHg9IjI2MCIgeT0iNDM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRkZGRkZGIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjciIGZvbnQtd2VpZ2h0PSI3MDAiIGxldHRlci1zcGFjaW5nPSI3Ij5TUE9LQU5FIExMQzwvdGV4dD4KPC9zdmc+";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-08-dashboard-v14-view-switch — v13 preserved; signed-in header now includes a persistent Mobile/Desktop view switch and remembers the user choice.";
+const BUILD_STAMP = "2026-08-08-dashboard-v15-otp-reload-fix — v14 preserved; Send Code is now functional using the employee saved email and Supabase email OTP, and app reloads/crash recovery no longer send an already-entered session back to the second App Hub splash.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -3255,6 +3255,61 @@ async function verifyPassword(userId, password) {
   return { ok: true, mustReset: !!cred.must_reset, isFirstLogin: false };
 }
 
+// ── Passwordless email one-time code ─────────────────────────────────────────
+// Uses Supabase Auth's email OTP endpoint for delivery/verification, while the
+// app continues to use its existing employee roster and custom password system.
+// The Supabase auth session is only used to prove possession of the saved email;
+// successful verification then signs the matching S&H employee into this app.
+async function requestEmailLoginCode(email) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+    },
+    body: JSON.stringify({ email, create_user: true }),
+  });
+  if (!res.ok) {
+    let msg = "Could not send the code.";
+    try {
+      const data = await res.json();
+      msg = data?.msg || data?.message || data?.error_description || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return true;
+}
+
+async function verifyEmailLoginCode(email, token) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+    },
+    body: JSON.stringify({ type: "email", email, token }),
+  });
+  if (!res.ok) {
+    let msg = "That code is invalid or expired.";
+    try {
+      const data = await res.json();
+      msg = data?.msg || data?.message || data?.error_description || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return await res.json().catch(() => ({}));
+}
+
+function maskEmailAddress(email) {
+  const value = String(email || "");
+  const [name, domain] = value.split("@");
+  if (!name || !domain) return value;
+  const shown = name.length <= 2 ? name[0] || "" : name.slice(0, 2);
+  return `${shown}${"*".repeat(Math.max(2, name.length - shown.length))}@${domain}`;
+}
+
 // ─── Login Screen — username + password ──────────────────────────────────────
 
 
@@ -3574,6 +3629,7 @@ class AppErrorBoundary extends React.Component {
             style={{ padding: "12px 28px", background: "#1B3A6B", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
             Reload App
           </button>
+          <div style={{ fontSize: 10.5, color: "#7B8DA8", marginTop: 10 }}>Your signed-in session and current app entry are preserved.</div>
         </div>
       );
     }
@@ -3590,6 +3646,12 @@ function LoginScreen({ onLogin }) {
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
   const [codeNotice, setCodeNotice] = useState(false);
+  const [codeStage, setCodeStage] = useState(false);
+  const [codeEmail, setCodeEmail] = useState("");
+  const [codeValue, setCodeValue] = useState("");
+  const [codeSending, setCodeSending] = useState(false);
+  const [codeVerifying, setCodeVerifying] = useState(false);
+  const [codeUser, setCodeUser] = useState(null);
   const [rosterReady, setRosterReady] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState("");
 
@@ -3672,6 +3734,59 @@ function LoginScreen({ onLogin }) {
     setChecking(false);
   }
 
+  async function sendOneTimeCode() {
+    setError("");
+    setCodeNotice(false);
+    const user = resolveUser(username);
+    if (!user) {
+      setError("Choose your account above, or enter your first name / employee username.");
+      return;
+    }
+
+    setCodeSending(true);
+    try {
+      const profile = await fetchContactInfo(user.id);
+      const savedEmail = String(profile?.email || "").trim();
+      if (!savedEmail) {
+        setError("No email is saved for this account yet. Add an email in your profile or ask an administrator to add one.");
+        setCodeSending(false);
+        return;
+      }
+      await requestEmailLoginCode(savedEmail);
+      setCodeUser(user);
+      setCodeEmail(savedEmail);
+      setCodeValue("");
+      setCodeStage(true);
+      setCodeNotice(true);
+    } catch (e) {
+      setError("Could not send code: " + (e?.message?.slice(0, 140) || "try again."));
+    }
+    setCodeSending(false);
+  }
+
+  async function submitOneTimeCode(event) {
+    event?.preventDefault?.();
+    setError("");
+    const token = codeValue.trim().replace(/\s+/g, "");
+    if (!token) {
+      setError("Enter the code from your email.");
+      return;
+    }
+    if (!codeUser || !codeEmail) {
+      setError("Request a new code first.");
+      return;
+    }
+
+    setCodeVerifying(true);
+    try {
+      await verifyEmailLoginCode(codeEmail, token);
+      onLogin(codeUser, { remember: rememberMe, oneTimeCode: true });
+    } catch (e) {
+      setError(e?.message?.slice(0, 140) || "That code is invalid or expired.");
+    }
+    setCodeVerifying(false);
+  }
+
   async function submitSetup() {
     setSetupError("");
     if (newPw.length < 6) { setSetupError("New password must be at least 6 characters."); return; }
@@ -3712,6 +3827,15 @@ function LoginScreen({ onLogin }) {
     .rr-eye{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:34px;height:34px;border:0;background:transparent;color:#0d3b80;cursor:pointer;font-size:17px}
     .rr-options{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:3px 0 15px}.rr-remember{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:#17345f;cursor:pointer}.rr-remember input{width:15px;height:15px;accent-color:#0d3b80}
     .rr-code{border:0;background:transparent;color:#1456b8;font-size:11px;font-weight:750;cursor:pointer;padding:3px}.rr-code:hover{text-decoration:underline}
+    .rr-code-panel{margin-top:10px;padding:13px;border:1px solid #d7e6fb;background:#f4f8ff;border-radius:9px}
+    .rr-code-title{font-size:12px;font-weight:850;color:#0d3b80;margin-bottom:4px}
+    .rr-code-sub{font-size:10.5px;line-height:1.4;color:#66768d;margin-bottom:10px}
+    .rr-code-row{display:flex;gap:8px;align-items:center}
+    .rr-code-input{flex:1;height:42px;border:1px solid #cddced;border-radius:7px;background:#fff;color:#17345f;padding:0 12px;font-size:18px;font-weight:800;letter-spacing:.18em;text-align:center;outline:none}
+    .rr-code-verify{height:42px;border:0;border-radius:7px;background:#0d3b80;color:#fff;padding:0 14px;font-size:11px;font-weight:800;cursor:pointer}
+    .rr-code-verify:disabled,.rr-code:disabled{opacity:.55;cursor:default}
+    .rr-code-actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+
     .rr-alert{font-size:11.5px;line-height:1.35;border-radius:7px;padding:8px 10px;margin:-3px 0 11px}.rr-error{color:#a72f2f;background:#fff3f3;border:1px solid #ffd4d4}.rr-info{color:#37587e;background:#f2f7ff;border:1px solid #d7e6fb}
     .rr-submit{width:100%;height:44px;border:0;border-radius:7px;background:linear-gradient(90deg,#0d3b80,#1456b8);color:#fff;font-size:13px;font-weight:850;letter-spacing:.035em;cursor:pointer;box-shadow:0 8px 18px rgba(13,59,128,.2)}.rr-submit:disabled{opacity:.62;cursor:default}
     .rr-benefits{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);background:rgba(255,255,255,.93);border:1px solid rgba(13,59,128,.1);border-radius:14px;overflow:hidden;box-shadow:0 12px 34px rgba(13,59,128,.08)}
@@ -3772,6 +3896,7 @@ function LoginScreen({ onLogin }) {
                 setSelectedAccount(id);
                 const emp = (_employeeDirectory || []).find(x => x.id === id) || SALES_USERS.find(x => x.id === id);
                 if (emp) setUsername(emp.name);
+                setCodeStage(false); setCodeNotice(false); setCodeValue(""); setCodeUser(null); setCodeEmail("");
                 setError("");
               }}
               disabled={!rosterReady}
@@ -3785,7 +3910,7 @@ function LoginScreen({ onLogin }) {
           </div>
           <div className="rr-field">
             <label className="rr-label" htmlFor="rr-username">Username or Name</label>
-            <input id="rr-username" className="rr-input" value={username} onChange={e => { setUsername(e.target.value); setSelectedAccount(""); setError(""); }} placeholder="Example: Brandon" autoComplete="username" list="rr-user-list" />
+            <input id="rr-username" className="rr-input" value={username} onChange={e => { setUsername(e.target.value); setSelectedAccount(""); setCodeStage(false); setCodeNotice(false); setCodeValue(""); setCodeUser(null); setCodeEmail(""); setError(""); }} placeholder="Example: Brandon" autoComplete="username" list="rr-user-list" />
             <datalist id="rr-user-list">{SALES_USERS.map(u => <option key={u.id} value={u.name} />)}</datalist>
           </div>
           <div className="rr-field">
@@ -3798,11 +3923,32 @@ function LoginScreen({ onLogin }) {
 
           <div className="rr-options">
             <label className="rr-remember"><input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} /><span>Remember me</span></label>
-            <button className="rr-code" type="button" onClick={() => { setCodeNotice(true); setError(""); }}>Send code</button>
+            <button className="rr-code" type="button" disabled={codeSending} onClick={sendOneTimeCode}>{codeSending ? "Sending…" : "Send one-time code"}</button>
           </div>
 
           {error && <div className="rr-alert rr-error">{error}</div>}
-          {codeNotice && <div className="rr-alert rr-info">Code sign-in is not enabled yet. Please use your password or contact an administrator for a reset.</div>}
+          {codeNotice && codeStage && (
+            <div className="rr-code-panel">
+              <div className="rr-code-title">Check your email</div>
+              <div className="rr-code-sub">We sent a one-time sign-in code to <strong>{maskEmailAddress(codeEmail)}</strong>. Enter it below.</div>
+              <div className="rr-code-row">
+                <input
+                  className="rr-code-input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={codeValue}
+                  onChange={e => setCodeValue(e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 12))}
+                  placeholder="CODE"
+                  aria-label="One-time sign-in code"
+                />
+                <button className="rr-code-verify" type="button" disabled={codeVerifying} onClick={submitOneTimeCode}>{codeVerifying ? "VERIFYING…" : "VERIFY"}</button>
+              </div>
+              <div className="rr-code-actions">
+                <button className="rr-code" type="button" disabled={codeSending} onClick={sendOneTimeCode}>Resend code</button>
+                <button className="rr-code" type="button" onClick={() => { setCodeStage(false); setCodeNotice(false); setCodeValue(""); }}>Use password instead</button>
+              </div>
+            </div>
+          )}
 
           <button className="rr-submit" type="submit" disabled={checking}>{checking ? "SIGNING IN…" : "SIGN IN"}</button>
         </form>
@@ -24745,6 +24891,7 @@ export default function App() {
       } else {
         localStorage.removeItem("sh_session_user");
         sessionStorage.removeItem("sh_session_user");
+        sessionStorage.removeItem("sh_app_hub_entered");
       }
     } catch {}
     // Ask for notification permission and register this device for push —
@@ -24755,7 +24902,10 @@ export default function App() {
   const [tab, setTab]     = useState("home");
   const [showMobileMore, setShowMobileMore] = useState(false);
   const [shellSearch, setShellSearch] = useState("");
-  const [showAppHub, setShowAppHub] = useState(true); // restore the second App Hub splash after login before entering the main dashboard
+  const [showAppHub, setShowAppHub] = useState(() => {
+    try { return sessionStorage.getItem("sh_app_hub_entered") !== "1"; }
+    catch { return true; }
+  }); // fresh login shows App Hub; an in-session reload returns to the app
   // Set by the Home screen's Quick Actions panel for the two actions that
   // need a real tab to do safely (mileage's GPS tracking only exists while
   // that tab is mounted; receipts just reuses its own Add form) — the tab
@@ -24777,6 +24927,7 @@ export default function App() {
   // moment to have Erik pop up with a quick walkthrough of the basics.
   function handleLogin(u, opts) {
     setUser(u, opts?.remember !== false);
+    try { sessionStorage.removeItem("sh_app_hub_entered"); } catch {}
     setShowAppHub(true);
     if (opts?.firstLogin) {
       setShowChatbot(true);
@@ -25226,7 +25377,7 @@ export default function App() {
   if (showAppHub) return (
     <AppErrorBoundary>
       <PolicyAcknowledgmentGate user={user}>
-        <AppHubScreen user={user} isDesktopView={isDesktopView} onSelect={(dest) => { setShowAppHub(false); if (dest !== "main") window.open(dest, "_blank"); }} />
+        <AppHubScreen user={user} isDesktopView={isDesktopView} onSelect={(dest) => { try { sessionStorage.setItem("sh_app_hub_entered", "1"); } catch {} setShowAppHub(false); if (dest !== "main") window.open(dest, "_blank"); }} />
       </PolicyAcknowledgmentGate>
     </AppErrorBoundary>
   );
