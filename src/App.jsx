@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-mobile-footer-blue — Mobile footer changed to S&H blue with white text; desktop footer unchanged.";
+const BUILD_STAMP = "2026-08-07-dashboard-final-v3 — Restored updated phase2g second App Hub splash; mobile nav now horizontally swipe-scrolls all permitted pages with circular icons and no More button; blueprint-house watermark restored across mobile white-screen backgrounds; mobile footer remains blue.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1487,115 +1487,106 @@ function HubIcon({ name, size = 28, color = "#fff" }) {
 function AppHubScreen({ user, onSelect, isDesktopView }) {
   const firstName = user?.name?.split(" ")[0] || "there";
   const hubApps = getUserHubApps(user);
+
   return (
-    <div style={{
-      ...S.app,
-      minHeight: "100vh",
-      alignItems: "center",
-      justifyContent: "center",
-      background: BRAND.navy,
-    }}>
-      <div style={{
-        width: "100%",
-        maxWidth: isDesktopView ? 700 : 430,
-        minHeight: "100vh",
-        background: BRAND.offWhite,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "40px 20px 32px",
-        boxSizing: "border-box",
-      }}>
-        <img
-          src={`data:image/png;base64,${LOGO_WIDE_B64}`}
-          alt="S&H Services"
-          style={{ width: 180, marginBottom: 18 }}
-        />
+    <div className="sh-hub-page">
+      <style>{`
+        .sh-hub-page{
+          min-height:100vh;
+          width:100%;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          padding:30px 18px;
+          font-family:'Inter',system-ui,sans-serif;
+          background:
+            linear-gradient(rgba(247,250,255,.86),rgba(247,250,255,.92)),
+            url("/blueprint-house.jpg") center center / cover no-repeat fixed;
+        }
+        .sh-hub-shell{
+          width:min(100%,${isDesktopView ? "780px" : "430px"});
+          background:rgba(255,255,255,.93);
+          border:1px solid #9FBEEC;
+          border-radius:20px;
+          padding:${isDesktopView ? "32px 36px 30px" : "24px 16px 22px"};
+          box-shadow:0 18px 50px rgba(13,59,128,.14);
+          backdrop-filter:blur(6px);
+        }
+        .sh-hub-brand{text-align:center;margin-bottom:22px}
+        .sh-hub-brand img{
+          width:min(100%,${isDesktopView ? "420px" : "300px"});
+          max-height:${isDesktopView ? "118px" : "92px"};
+          object-fit:contain;
+        }
+        .sh-hub-brand h1{margin:14px 0 4px;font-size:${isDesktopView ? "26px" : "21px"};color:#0D3B80}
+        .sh-hub-brand p{margin:0;color:#66768D;font-size:13px}
+        .sh-hub-apps{
+          display:grid;
+          grid-template-columns:${isDesktopView ? "repeat(2,minmax(0,1fr))" : "1fr"};
+          gap:12px;
+        }
+        .sh-hub-app{
+          width:100%;
+          min-height:94px;
+          background:#fff;
+          border:1px solid #9FBEEC;
+          border-radius:14px;
+          padding:15px 16px;
+          display:flex;
+          align-items:center;
+          gap:13px;
+          cursor:pointer;
+          text-align:left;
+          color:#0D3B80;
+          box-shadow:0 3px 10px rgba(13,59,128,.06);
+        }
+        .sh-hub-app:hover{background:#F3F7FD;border-color:#6F9DDE}
+        .sh-hub-icon{
+          width:50px;height:50px;border-radius:50%;
+          flex:0 0 auto;background:#0D3B80;color:#fff;
+          display:flex;align-items:center;justify-content:center;
+        }
+        .sh-hub-copy{flex:1;min-width:0}
+        .sh-hub-copy strong{display:block;color:#0D3B80;font-size:15px;margin-bottom:3px}
+        .sh-hub-copy small{display:block;color:#66768D;font-size:11px;line-height:1.35}
+        .sh-hub-arrow{color:#1456B8;font-size:24px}
+        .sh-hub-main{
+          width:100%;margin-top:14px;height:46px;border:0;border-radius:10px;
+          background:linear-gradient(90deg,#0D3B80,#1456B8);color:#fff;
+          font-weight:750;cursor:pointer;
+        }
+        .sh-hub-footer{
+          text-align:center;color:#0D3B80;font-size:11px;
+          font-weight:650;margin-top:16px;letter-spacing:.08em;
+        }
+      `}</style>
 
-        <div style={{ fontSize: 22, fontWeight: 800, color: BRAND.navy, marginBottom: 4, textAlign: "center" }}>
-          Welcome back, {firstName}!
-        </div>
-        <div style={{ fontSize: 14, color: BRAND.muted, marginBottom: 32, textAlign: "center" }}>
-          Where would you like to go?
+      <section className="sh-hub-shell">
+        <div className="sh-hub-brand">
+          <img src="/sh-header-logo.png" alt="S&H Services — Simple | Honest" />
+          <h1>Welcome back, {firstName}!</h1>
+          <p>Choose where you'd like to go.</p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
+        <div className="sh-hub-apps">
           {hubApps.map(app => (
-            <button
-              key={app.id}
-              onClick={() => onSelect(app.dest)}
-              style={{
-                width: "100%",
-                background: app.color,
-                border: "none",
-                borderRadius: 16,
-                padding: "20px 22px",
-                display: "flex",
-                alignItems: "center",
-                gap: 18,
-                cursor: "pointer",
-                boxShadow: "0 4px 16px rgba(27,58,107,0.18)",
-                transition: "transform 0.12s, box-shadow 0.12s",
-                textAlign: "left",
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = "scale(1.025)";
-                e.currentTarget.style.boxShadow = "0 8px 24px rgba(27,58,107,0.28)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = "";
-                e.currentTarget.style.boxShadow = "0 4px 16px rgba(27,58,107,0.18)";
-              }}
-            >
-              <div style={{
-                width: 52,
-                height: 52,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                <HubIcon name={app.icon} size={26} color="#fff" />
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 3, letterSpacing: "-0.1px" }}>
-                  {app.label}
-                </div>
-                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.72)", lineHeight: 1.35 }}>
-                  {app.subtitle}
-                </div>
-              </div>
-
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke="rgba(255,255,255,0.6)" strokeWidth="2.2"
-                strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
+            <button key={app.id} className="sh-hub-app" onClick={() => onSelect(app.dest)}>
+              <span className="sh-hub-icon"><HubIcon name={app.icon} size={25} color="#fff" /></span>
+              <span className="sh-hub-copy">
+                <strong>{app.label}</strong>
+                <small>{app.subtitle}</small>
+              </span>
+              <span className="sh-hub-arrow">›</span>
             </button>
           ))}
         </div>
 
-        <button
-          onClick={() => onSelect("main")}
-          style={{
-            marginTop: 28,
-            background: "none",
-            border: "none",
-            color: BRAND.muted,
-            fontSize: 14,
-            cursor: "pointer",
-            textDecoration: "underline",
-            textDecorationColor: "transparent",
-          }}
-          onMouseEnter={e => e.currentTarget.style.textDecorationColor = BRAND.muted}
-          onMouseLeave={e => e.currentTarget.style.textDecorationColor = "transparent"}
-        >
-          Skip — go to Jobs & Operations
+        <button className="sh-hub-main" onClick={() => onSelect("main")}>
+          Open S&amp;H Jobs &amp; Operations
         </button>
-      </div>
+
+        <div className="sh-hub-footer">SIMPLE &nbsp; | &nbsp; HONEST</div>
+      </section>
     </div>
   );
 }
@@ -2656,26 +2647,26 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
   );
 }
 
-function SHMobileBottomNav({ activeTab, onSelect, onMore, taskBadge = 0 }) {
-  const items = [
-    { id:"home", label:"Home" },
-    { id:"tasks", label:"My Tasks" },
-    { id:"jobs", label:"Jobs" },
-    { id:"calendar", label:"Schedule" },
-  ];
+function SHMobileBottomNav({ tabs = [], activeTab, onSelect, taskBadge = 0 }) {
+  // Mobile navigation intentionally exposes every permitted page in one
+  // horizontally swipeable rail — no separate “More” menu.
   return (
-    <nav className="sh-bottom-nav">
-      {items.map(t => (
-        <button key={t.id} className={activeTab === t.id ? "active" : ""} onClick={() => onSelect(t.id)}>
-          <span>{TabIcons[t.id]}</span>
-          <small>{t.label}</small>
-          {t.id === "tasks" && taskBadge > 0 && <i>{taskBadge > 9 ? "9+" : taskBadge}</i>}
-        </button>
-      ))}
-      <button onClick={onMore}>
-        <span className="sh-more-dots">•••</span>
-        <small>More</small>
-      </button>
+    <nav className="sh-bottom-nav" aria-label="App pages">
+      {tabs.map(t => {
+        const icon = TabIcons[t.id] || <span style={{fontSize:18}}>{t.icon}</span>;
+        return (
+          <button
+            key={t.id}
+            className={activeTab === t.id ? "active" : ""}
+            onClick={() => onSelect(t.id)}
+            aria-current={activeTab === t.id ? "page" : undefined}
+          >
+            <span className="sh-mobile-nav-circle">{icon}</span>
+            <small>{t.label}</small>
+            {t.id === "tasks" && taskBadge > 0 && <i>{taskBadge > 9 ? "9+" : taskBadge}</i>}
+          </button>
+        );
+      })}
     </nav>
   );
 }
@@ -24742,7 +24733,7 @@ export default function App() {
             overflow:hidden;
           }
           .desktop .sh-main-workspace{flex:1;margin:0;border-right:0;padding-top:82px;max-width:none}
-          .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0}
+          .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0;background:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg") center top / cover no-repeat fixed}
           .sh-sidebar{width:218px;background:linear-gradient(180deg,#0b3b84 0%,#0d4d9f 58%,#7aa4d8 82%,#ffffff 100%);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:3px 0 16px rgba(8,43,96,.10);padding-top:90px;position:relative;overflow:hidden}
                     .sh-sidebar-nav{padding:18px 0 150px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;position:relative;z-index:2}
           .sh-side-item{position:relative;border:0;background:transparent;color:rgba(255,255,255,.95);border-radius:10px 0 0 10px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:11px;font-weight:650;text-align:left;cursor:pointer;overflow:hidden}
@@ -24793,8 +24784,11 @@ export default function App() {
           .sh-schedule-date{width:38px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:8px;color:#0d3b80}.sh-schedule-date small{font-size:7px;color:#66768d;margin-top:2px}
           .sh-empty{font-size:9px;color:#8a98ac;text-align:center;padding:22px 8px}
           
-          .sh-bottom-nav{position:relative;left:auto;transform:none;bottom:auto;width:100%;height:70px;background:linear-gradient(90deg,#0d3b80,#104aa0);border:0;display:flex;z-index:110;padding:0 4px;flex-shrink:0;box-shadow:0 3px 10px rgba(13,59,128,.14)}
-          .sh-bottom-nav button{flex:1;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative;padding:3px 0}.sh-bottom-nav button>span{width:34px;height:34px;border:1.4px solid rgba(255,255,255,.9);border-radius:50%;display:grid;place-items:center;color:#fff}.sh-bottom-nav svg{width:19px;height:19px}.sh-bottom-nav small{font-size:8px;font-weight:650;color:#fff}.sh-bottom-nav button.active>span{background:#fff;color:#0d3b80;box-shadow:0 2px 8px rgba(0,0,0,.15)}.sh-bottom-nav button.active small{font-weight:800}.sh-bottom-nav button i{position:absolute;top:2px;right:20%;background:#ef4444;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}.sh-more-dots{font-size:17px;line-height:12px;font-weight:800}
+          .sh-bottom-nav{position:relative;left:auto;transform:none;bottom:auto;width:100%;height:78px;background:linear-gradient(90deg,#0d3b80,#104aa0);border:0;display:flex;align-items:stretch;z-index:110;padding:0 8px;flex-shrink:0;box-shadow:0 3px 10px rgba(13,59,128,.14);overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+          .sh-bottom-nav::-webkit-scrollbar{display:none}
+          .sh-bottom-nav button{flex:0 0 78px;min-width:78px;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative;padding:4px 3px;scroll-snap-align:start}
+          .sh-bottom-nav .sh-mobile-nav-circle{width:38px;height:38px;border:1.6px solid rgba(255,255,255,.96);border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(255,255,255,.04);box-sizing:border-box}
+          .sh-bottom-nav svg{width:20px;height:20px}.sh-bottom-nav small{font-size:7.5px;font-weight:650;color:#fff;white-space:nowrap;max-width:74px;overflow:hidden;text-overflow:ellipsis}.sh-bottom-nav button.active .sh-mobile-nav-circle{background:#fff;color:#0d3b80;box-shadow:0 2px 8px rgba(0,0,0,.16)}.sh-bottom-nav button.active small{font-weight:800}.sh-bottom-nav button i{position:absolute;top:5px;right:13px;background:#ef4444;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}
           .sh-more-backdrop{position:fixed;inset:0;background:rgba(8,43,96,.34);z-index:180;display:flex;align-items:flex-end;justify-content:center}
           .sh-more-sheet{width:min(100%,430px);max-height:76vh;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 30px rgba(13,59,128,.18);overflow-y:auto}
           .sh-more-handle{width:38px;height:4px;border-radius:99px;background:#d6dee9;margin:3px auto 9px}.sh-more-title{display:flex;align-items:center;justify-content:space-between;padding:2px 3px 10px}.sh-more-title strong{font-size:16px;color:#0d3b80}.sh-more-title button{border:0;background:#f1f5f9;width:28px;height:28px;border-radius:50%;font-size:17px}
@@ -24802,27 +24796,15 @@ export default function App() {
 
           .sh-app-footer{min-height:38px;background:rgba(255,255,255,.96);border-top:3px solid #0d3b80;display:flex;align-items:center;justify-content:center;gap:16px;padding:7px 18px;color:#0d3b80;font-size:9px;flex-shrink:0;position:relative}.sh-app-footer b{font-size:8px}.sh-footer-version{position:absolute;right:18px}
           @media(max-width:767px){
-            .mobile footer,
-            .mobile .app-footer,
-            .mobile [class*="footer"],
-            .mobile [style*="border-top"]{
-              background:#0D3B80 !important;
-              color:#FFFFFF !important;
-              border-top-color:#0D3B80 !important;
-            }
-            .mobile footer *,
-            .mobile .app-footer *,
-            .mobile [class*="footer"] *{
-              color:#FFFFFF !important;
-            }
-
             .sh-topbar{height:74px;padding:0 12px;gap:8px;position:relative;top:auto;left:auto;right:auto;border-bottom:0;box-shadow:none}.sh-mobile-brand{display:flex;align-items:center;width:165px;flex-shrink:0}.sh-mobile-brand img{width:155px;max-height:54px;object-fit:contain;object-position:left center}
             .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:7px}
             .sh-dashboard{padding:12px 10px 18px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:10px}.sh-dash-title{font-size:16px}.sh-dash-subtitle{font-size:8px}.sh-dash-actions{display:none}
             .sh-dash-hero:after{font-size:34px;left:42%;top:-4px}
             .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:7px}.sh-metric-card{min-height:66px;padding:8px;grid-template-columns:30px auto 1fr;gap:6px}.sh-metric-icon{width:30px;height:30px}.sh-metric-number{font-size:16px}.sh-metric-copy strong{font-size:8px}.sh-metric-copy small{font-size:6.8px}
             .sh-dash-columns{grid-template-columns:1fr;gap:8px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:34px}.sh-list-row{padding:8px 5px}.sh-row-main strong{font-size:8.5px}.sh-row-main small{font-size:7px}
-            .sh-erik-card{display:none}.sh-app-footer{min-height:32px;padding:6px 8px;gap:5px;font-size:6.5px;flex-wrap:wrap}.sh-footer-version{position:static}
+            .sh-erik-card{display:none}.sh-app-footer{min-height:36px;padding:7px 8px;gap:5px;font-size:6.5px;flex-wrap:wrap;background:linear-gradient(90deg,#0d3b80,#104aa0);color:#fff;border-top:0}.sh-footer-version{position:static;color:#fff}
+            .mobile .sh-content-stage{background:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg") center top / cover no-repeat fixed}
+            .mobile .sh-content-stage>div:first-child{background-image:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg")!important;background-size:cover!important;background-position:center top!important;background-attachment:fixed!important}
           }
         `}</style>
         <OfflineBanner />
@@ -25163,9 +25145,9 @@ export default function App() {
         </div>
         {!isDesktopView && (
           <SHMobileBottomNav
+            tabs={tabs}
             activeTab={tab}
             onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }}
-            onMore={() => setShowMobileMore(true)}
             taskBadge={(allNotifs.newTasks?.length || 0) + (allNotifs.followUps?.length || 0)}
           />
         )}
@@ -25208,7 +25190,7 @@ export default function App() {
           </div>
         ) : (
           <AppErrorBoundary>
-          <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div className="sh-content-stage" style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} isDesktopView={isDesktopView} onOpenChatbot={() => setShowChatbot(true)} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} onCheckScheduleConflict={brCheckScheduleConflict} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
@@ -25241,7 +25223,6 @@ export default function App() {
           <span>RestoredRight System™</span>
           <span className="sh-footer-version">v2.5.1</span>
         </footer>
-        {showMobileMore && <SHMoreMenu tabs={tabs} activeTab={tab} onSelect={setTab} onClose={() => setShowMobileMore(false)} />}
       </div>
     </div>
     </UserCtx.Provider>
