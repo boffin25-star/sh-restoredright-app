@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-dashboard-v6 — Full visual consistency pass across all tabs and sections: RestoredRight blue/white card system, larger mobile controls and typography, consistent inputs/buttons/section headers, circular swipe-nav icons, blueprint watermark backgrounds, and preserved v5 dashboard/task/header fixes.";
+const BUILD_STAMP = "2026-08-08-dashboard-v10-login-approved — v9 estimate view-tracking master with ONLY the approved desktop/mobile login branding applied from App-final-login-approved(1).jsx; all post-login app logic, styling, estimate workflow, UAT fixes, and link-view tracking preserved.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1782,15 +1782,53 @@ function brGetOtherOwner(userName) {
 // "schedule this job" task + push notification to both owners so an
 // acceptance never quietly sits there unscheduled.
 async function notifyOwnersToScheduleJob(job, { contextLabel, createdBy }) {
-  if (!job?.id) return;
+  if (!job?.id) return { transitioned: false, workflowStage: null };
+
+  // Read the live state before doing anything. Acceptance is allowed to
+  // recover a previously declined estimate ("changed my mind"), but a replay
+  // after a completed acceptance must be a no-op.
+  let wasEstimate = !!job.isEstimate;
+  let currentWorkflowStage = job.workflowStage || "";
   try {
-    await updateJobField(job.id, "is_estimate", false);
+    const rows = await sbFetch(`jobs?id=eq.${encodeURIComponent(job.id)}&select=is_estimate,workflow_stage`);
+    if (rows?.[0]) {
+      if (typeof rows[0].is_estimate === "boolean") wasEstimate = rows[0].is_estimate;
+      currentWorkflowStage = rows[0].workflow_stage || currentWorkflowStage;
+    }
   } catch (e) { console.error(e); }
+
+  if (!wasEstimate) return { transitioned: false, workflowStage: currentWorkflowStage };
+
+  // An accepted estimate is approved to proceed. If the job had been placed
+  // in the Declined hold state and the client changes their mind, acceptance
+  // explicitly releases that hold. Otherwise only move workflow forward.
+  let nextWorkflowStage = currentWorkflowStage;
+  if (WORKFLOW_ON_HOLD.includes(currentWorkflowStage)) {
+    nextWorkflowStage = "Approved to Begin";
+  } else {
+    nextWorkflowStage = maybeAdvanceWorkflowStage(currentWorkflowStage, "Approved to Begin")
+      || currentWorkflowStage
+      || "Approved to Begin";
+  }
+
+  try {
+    await sbFetch(`jobs?id=eq.${encodeURIComponent(job.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        is_estimate: false,
+        workflow_stage: nextWorkflowStage,
+      }),
+    });
+  } catch (e) {
+    console.error(e);
+    return { transitioned: false, workflowStage: currentWorkflowStage };
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   await Promise.all(BR_CO_OWNERS.map(owner =>
     insertStandaloneTask({
-      id: `SCHEDULE-${job.id}-${Date.now()}-${owner}`,
+      // Stable IDs make this idempotent even if a retry reaches Supabase.
+      id: `SCHEDULE-${job.id}-${owner}`,
       title: `📅 Schedule job — ${job.customerName || "Client"}`,
       description: `${contextLabel} for ${job.customerName || "this client"}. Get it on the calendar.`,
       assigned_to: owner,
@@ -1807,8 +1845,9 @@ async function notifyOwnersToScheduleJob(job, { contextLabel, createdBy }) {
     title: "📅 Schedule this job",
     body: `${job.customerName || "A client"} accepted their estimate — time to get it on the calendar.`,
     url: "/",
-    tag: "schedule-job",
+    tag: `schedule-job-${job.id}`,
   });
+  return { transitioned: true, workflowStage: nextWorkflowStage };
 }
 
 // Fired when a client explicitly declines an estimate from the remote
@@ -1816,11 +1855,41 @@ async function notifyOwnersToScheduleJob(job, { contextLabel, createdBy }) {
 // stays right where it was as an open Estimate — this just makes sure the
 // decline can't get missed: a high-priority task + push to both owners.
 async function notifyOwnersOfDecline(job, doc, { reason, declinedBy }) {
+  if (!doc?.id) return { transitioned: false };
+
   const today = new Date().toISOString().slice(0, 10);
   const who = declinedBy || job?.customerName || "The client";
+
+  // Persist the workflow decision. If already Declined, do not re-create
+  // owner tasks or send another push.
+  let alreadyDeclined = false;
+  if (job?.id) {
+    try {
+      const rows = await sbFetch(`jobs?id=eq.${encodeURIComponent(job.id)}&select=workflow_stage,is_estimate`);
+      alreadyDeclined = rows?.[0]?.workflow_stage === "Declined";
+      if (!alreadyDeclined) {
+        await sbFetch(`jobs?id=eq.${encodeURIComponent(job.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            workflow_stage: "Declined",
+            // It remains an estimate record, but is now explicitly on hold.
+            is_estimate: true,
+          }),
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  }
+
+  if (alreadyDeclined) return { transitioned: false };
+
   await Promise.all(BR_CO_OWNERS.map(owner =>
     insertStandaloneTask({
-      id: `DECLINE-${(doc?.id || Date.now())}-${Date.now()}-${owner}`,
+      // Stable per-estimate/per-owner task IDs make repeated decline actions
+      // idempotent instead of creating another owner follow-up every click.
+      id: `DECLINE-${doc.id}-${owner}`,
       title: `❌ Estimate declined — ${job?.customerName || who}`,
       description: `${who} declined ${doc?.name || "the estimate"}${reason ? `: "${reason}"` : " (no reason given)."} Follow up if you'd like to.`,
       assigned_to: owner,
@@ -1837,8 +1906,9 @@ async function notifyOwnersOfDecline(job, doc, { reason, declinedBy }) {
     title: "❌ Estimate declined",
     body: `${who} declined their estimate${reason ? `: ${reason}` : "."}`,
     url: "/",
-    tag: "estimate-declined",
+    tag: `estimate-declined-${doc.id}`,
   });
+  return { transitioned: true };
 }
 function brFmtMoney(n) {
   return "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3618,12 +3688,12 @@ function LoginScreen({ onLogin }) {
   const profileComplete = empRecord && empRecord.emergencyContactName && empRecord.address;
 
   const loginCss = `
-    .rr-login{min-height:100dvh;width:100%;position:relative;overflow:hidden;background:#f7faff;display:flex;align-items:center;justify-content:center;padding:34px 18px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17345f}
-    .rr-login-bg{position:absolute;inset:0;background-image:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.88)),url('/blueprint-house.jpg');background-size:cover;background-position:center;opacity:.92}
+    .rr-login{min-height:100dvh;width:100%;position:relative;overflow:hidden;background:#0d3b80;display:flex;align-items:center;justify-content:center;padding:34px 18px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17345f}
+    .rr-login-bg{position:absolute;inset:0;background-image:linear-gradient(180deg,rgba(13,59,128,.08),rgba(13,59,128,.26)),url('/blueprint-house-login-inverted.jpg');background-size:cover;background-position:center;opacity:1}
     .rr-login-inner{position:relative;z-index:1;width:min(100%,430px)}
-    .rr-brand{text-align:center;margin-bottom:15px}
-    .rr-logo{display:block;width:min(245px,70vw);height:auto;margin:0 auto 2px;filter:drop-shadow(0 5px 12px rgba(13,59,128,.06))}
-    .rr-tagline{font-family:"Segoe Script","Brush Script MT",cursive;color:#0d3b80;font-size:34px;font-weight:600;line-height:1;transform:rotate(-2deg);margin-top:-1px}
+    .rr-brand{text-align:center;margin-bottom:16px}
+    .rr-logo{display:block;width:min(225px,58vw);height:auto;margin:0 auto;filter:drop-shadow(0 9px 20px rgba(0,0,0,.24))}
+    .rr-tagline{display:none}
     .rr-card{background:rgba(255,255,255,.96);border:1px solid rgba(13,59,128,.12);border-radius:15px;padding:20px;box-shadow:0 18px 52px rgba(13,59,128,.13);backdrop-filter:blur(9px)}
     .rr-field{margin-bottom:13px}.rr-label{display:block;font-size:11px;font-weight:800;color:#17345f;margin:0 0 6px}
     .rr-input-wrap{position:relative}.rr-input{width:100%;height:44px;border:1px solid #dce5f0;border-radius:7px;background:#fff;color:#17345f;padding:0 12px;font-size:13px;outline:none;transition:.15s;border-box}
@@ -3637,7 +3707,7 @@ function LoginScreen({ onLogin }) {
     .rr-benefit{padding:13px 8px 12px;min-height:108px;text-align:center;display:flex;align-items:center;flex-direction:column}.rr-benefit+.rr-benefit{border-left:1px solid rgba(13,59,128,.09)}.rr-benefit-icon{width:31px;height:31px;border-radius:50%;border:1.5px solid #0d3b80;color:#0d3b80;display:grid;place-items:center;font-size:15px;margin-bottom:7px}.rr-benefit strong{font-size:9.5px;color:#0d3b80;margin-bottom:4px}.rr-benefit span{font-size:8.5px;color:#66768d;line-height:1.3}
     .rr-secure{margin-top:13px;background:linear-gradient(90deg,#0d3b80,#1456b8);border-radius:0 0 13px 13px;color:#fff;text-align:center;padding:10px 13px;box-shadow:0 8px 18px rgba(13,59,128,.14)}.rr-secure div{font-size:8.5px;font-weight:850;letter-spacing:.045em}.rr-secure span{display:block;font-size:8px;opacity:.83;font-style:italic;margin-top:3px}
     .rr-setup-title{text-align:center;color:#0d3b80;font-size:19px;font-weight:850;margin-bottom:5px}.rr-setup-sub{text-align:center;color:#66768d;font-size:12px;line-height:1.45;margin:0 auto 17px;max-width:310px}.rr-back{display:block;margin:12px auto 0;border:0;background:transparent;color:#66768d;font-size:12px;font-weight:700;cursor:pointer}
-    @media(max-width:600px){.rr-login{align-items:flex-start;padding:calc(env(safe-area-inset-top,0px) + 24px) 14px calc(env(safe-area-inset-bottom,0px) + 24px)}.rr-login-inner{width:min(100%,360px)}.rr-logo{width:min(205px,60vw)}.rr-tagline{font-size:25px}.rr-card{padding:16px;border-radius:13px}.rr-benefits{display:none}.rr-secure{border-radius:10px}.rr-login-bg{background-position:center top}}
+    @media(max-width:600px){.rr-login{align-items:flex-start;padding:calc(env(safe-area-inset-top,0px) + 24px) 14px calc(env(safe-area-inset-bottom,0px) + 24px)}.rr-login-inner{width:min(100%,360px)}.rr-logo{width:min(185px,50vw)}.rr-tagline{font-size:25px}.rr-card{padding:16px;border-radius:13px}.rr-benefits{display:none}.rr-secure{border-radius:10px}.rr-login-bg{background-position:center top}}
   `;
 
   if (pendingUser && setupStage) {
@@ -3647,7 +3717,7 @@ function LoginScreen({ onLogin }) {
         <div className="rr-login-bg" aria-hidden="true" />
         <div className="rr-login-inner">
           <div className="rr-brand">
-            <img className="rr-logo" src="/sh-services-logo.png" alt="S&H Services" />
+            <img className="rr-logo" src="/restoredright-badge.png" alt="S&H RestoredRight System" />
             <div className="rr-tagline">Restoration Done Right!</div>
           </div>
           <div className="rr-card">
@@ -3675,7 +3745,7 @@ function LoginScreen({ onLogin }) {
       <div className="rr-login-bg" aria-hidden="true" />
       <div className="rr-login-inner">
         <div className="rr-brand">
-          <img className="rr-logo" src="/sh-services-logo.png" alt="S&H Services" />
+          <img className="rr-logo" src="/restoredright-badge.png" alt="S&H RestoredRight System" />
           <div className="rr-tagline">Restoration Done Right!</div>
         </div>
 
@@ -5290,6 +5360,7 @@ function ScanExtract({ mode, onExtract, onClose }) {
 function ReceiptCard({ receipt, onSave, onDelete, onLightbox, user }) {
   const showDollars = canSeeDollars(user);
   const allowDelete = canDelete(user);
+  const displayDocs = docType === "estimate" ? docs.filter(d => !isEstimateAcceptanceDoc(d)) : docs;
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState({ vendor: receipt.vendor, amount: receipt.amount, category: receipt.category, note: receipt.note, travelHours: receipt.travelHours || "", billable: receipt.billable || false, paidBy: receipt.paidBy || "company" });
   const [saving, setSaving] = useState(false);
@@ -9716,10 +9787,10 @@ function JobContracts({ jobId, job, user }) {
     try {
       // Fetch metadata only (no url) filtered to this job
       const rows = await sbFetch(
-        `documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type`
+        `documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id`
       );
       const jobDocs = (rows || []).filter(d =>
-        d.description?.includes(jobId) || d.name?.includes(jobId)
+        d.linked_job_id === jobId || d.description?.includes(jobId) || d.name?.includes(jobId)
       );
       setDocs(jobDocs);
     } catch {}
@@ -9742,7 +9813,7 @@ function JobContracts({ jobId, job, user }) {
 
   const contracts = docs.filter(d => d.doc_type === "contract" || d.name?.toLowerCase().includes("contract"));
   const invoices  = docs.filter(d => d.doc_type === "invoice"  || d.name?.toLowerCase().includes("invoice"));
-  const estimates = docs.filter(d => d.doc_type === "estimate" || d.name?.toLowerCase().includes("estimate"));
+  const estimates = docs.filter(d => !isEstimateAcceptanceDoc(d) && (d.doc_type === "estimate" || d.name?.toLowerCase().includes("estimate")));
 
   function DocRow({ doc, color, icon, label }) {
     return (
@@ -9770,34 +9841,42 @@ function JobContracts({ jobId, job, user }) {
   // Estimates get their own row (instead of the plain DocRow) so we can offer
   // both acceptance actions right here, mirroring the Estimates tab.
   function EstimateRow({ doc }) {
-    const isAcceptedCopy = doc.name?.startsWith("[Client Accepted]");
-    const hasAcceptedCopy = !isAcceptedCopy && docs.some(d => d.name === `[Client Accepted] ${doc.name}`);
+    const acceptanceDoc = findEstimateAcceptanceInDocs(doc, docs);
+    const accepted = !!acceptanceDoc;
     return (
-      <div style={{ ...S.card, borderLeft: isAcceptedCopy ? "4px solid #16A34A" : "4px solid #D97706" }}>
+      <div style={{ ...S.card, borderLeft: accepted ? "4px solid #16A34A" : "4px solid #D97706" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <span style={{ fontSize: 26, flexShrink: 0 }}>{isAcceptedCopy ? "✅" : "📐"}</span>
+          <span style={{ fontSize: 26, flexShrink: 0 }}>{accepted ? "✅" : "📐"}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: BRAND.navy, wordBreak: "break-word" }}>{doc.name}</div>
-            {doc.description && <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 2 }}>{doc.description}</div>}
+            {stripEstimateViewMetaDescription(doc.description) && <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 2 }}>{stripEstimateViewMetaDescription(doc.description)}</div>}
             <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 3 }}>
               {doc.uploaded_by} · {fmtDate(doc.uploaded_at)}
             </div>
-            {hasAcceptedCopy && (
+            {getEstimateViewMeta(doc) && (
+              <div style={{ fontSize: 10.5, color: "#1D4ED8", fontWeight: 700, marginTop: 5 }}>
+                👁 Client viewed {fmtTs(getEstimateViewMeta(doc).lastViewedAt)}
+                {getEstimateViewMeta(doc).viewCount > 1 ? ` · ${getEstimateViewMeta(doc).viewCount} opens` : ""}
+              </div>
+            )}
+            {accepted && (
               <div style={{ marginTop: 6 }}>
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: "#16A34A", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 5, padding: "2px 8px" }}>✓ Client Accepted</span>
               </div>
             )}
             <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-              <button
-                onClick={() => open(doc)}
-                style={{ background: "#D97706", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "5px 14px", cursor: "pointer", opacity: loadingId === doc.id ? 0.6 : 1 }}
-              >
+              <button onClick={() => open(doc)} style={{ background: "#D97706", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "5px 14px", cursor: "pointer", opacity: loadingId === doc.id ? 0.6 : 1 }}>
                 {loadingId === doc.id ? "Opening…" : "View Estimate"}
               </button>
-              {!isAcceptedCopy && job && user && (
+              {acceptanceDoc && (
+                <button onClick={() => open(acceptanceDoc)} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
+                  ✅ View Acceptance
+                </button>
+              )}
+              {!accepted && job && user && (
                 <>
-                  <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : "#fff", fontSize: 11, fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
-                    {hasAcceptedCopy ? "✍️ Sign Again" : "✍️ Client Accept"}
+                  <button onClick={() => setAcceptingDoc(doc)} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
+                    ✍️ Client Accept
                   </button>
                   <button onClick={() => setPhoneAcceptingDoc(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
                     📞 Accepted by Phone
@@ -9818,13 +9897,13 @@ function JobContracts({ jobId, job, user }) {
       {acceptingDoc && (
         <EstimateAcceptance doc={acceptingDoc} jobs={[job]} user={user}
           onCancel={() => setAcceptingDoc(null)}
-          onDone={() => { setAcceptingDoc(null); load(); setToast({ msg: "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+          onDone={(result) => { setAcceptingDoc(null); load(); setToast({ msg: result?.alreadyAccepted ? "This estimate was already accepted — no duplicate was created." : "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3500); }}
         />
       )}
       {phoneAcceptingDoc && (
         <EstimatePhoneAccept doc={phoneAcceptingDoc} jobs={[job]} user={user}
           onCancel={() => setPhoneAcceptingDoc(null)}
-          onDone={() => { setPhoneAcceptingDoc(null); load(); setToast({ msg: "Phone acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+          onDone={(result) => { setPhoneAcceptingDoc(null); load(); setToast({ msg: result?.alreadyAccepted ? "This estimate was already accepted — no duplicate was created." : "Phone acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3500); }}
         />
       )}
 
@@ -12128,7 +12207,7 @@ function CalendarView({ jobs, user }) {
 // ─── Docs Supabase helpers ────────────────────────────────────────────────────
 async function fetchDocs() {
   // Exclude url (large base64) for fast list loading
-  const rows = await sbFetch("documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at");
+  const rows = await sbFetch("documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id");
   return rows || [];
 }
 async function fetchDocUrl(id) {
@@ -12140,6 +12219,136 @@ async function insertDoc(doc) {
 }
 async function deleteDoc(id) {
   await sbFetch(`documents?id=eq.${id}`, { method: "DELETE" });
+}
+
+
+// ─── Estimate acceptance integrity helpers ───────────────────────────────────
+// Acceptance certificates are records of an estimate being approved; they are
+// not new estimates. Older builds stored them as doc_type="estimate", so these
+// helpers recognize both the legacy name convention and the newer dedicated
+// doc_type without breaking existing data.
+function isEstimateAcceptanceDoc(doc) {
+  return doc?.doc_type === "estimate_acceptance" || doc?.name?.startsWith("[Client Accepted]");
+}
+
+const ESTIMATE_VIEW_META_RE = /\s*\[\[EST_VIEW:first=([^|]+)\|last=([^|]+)\|count=(\d+)\]\]\s*$/;
+
+function getEstimateViewMeta(docOrDescription) {
+  const description = typeof docOrDescription === "string"
+    ? docOrDescription
+    : (docOrDescription?.description || "");
+  const m = description.match(ESTIMATE_VIEW_META_RE);
+  if (!m) return null;
+  return {
+    firstViewedAt: m[1],
+    lastViewedAt: m[2],
+    viewCount: Number(m[3] || 0),
+  };
+}
+
+function stripEstimateViewMetaDescription(description) {
+  return String(description || "").replace(ESTIMATE_VIEW_META_RE, "").trim();
+}
+
+function withEstimateViewMeta(description, meta) {
+  const base = stripEstimateViewMetaDescription(description);
+  const marker = `[[EST_VIEW:first=${meta.firstViewedAt}|last=${meta.lastViewedAt}|count=${meta.viewCount}]]`;
+  return `${base}${base ? " " : ""}${marker}`;
+}
+
+async function recordEstimateLinkView(doc) {
+  if (!doc?.id || isEstimateAcceptanceDoc(doc)) return null;
+
+  // Re-read the latest description so first-view and count survive refreshes
+  // and multiple client opens.
+  let current = doc;
+  try {
+    const rows = await sbFetch(
+      `documents?id=eq.${encodeURIComponent(doc.id)}&select=id,description,doc_type,name`
+    );
+    if (rows?.[0]) current = { ...doc, ...rows[0] };
+  } catch {}
+
+  const now = new Date().toISOString();
+  const prior = getEstimateViewMeta(current);
+  const next = {
+    firstViewedAt: prior?.firstViewedAt || now,
+    lastViewedAt: now,
+    viewCount: (prior?.viewCount || 0) + 1,
+  };
+  const description = withEstimateViewMeta(current.description, next);
+
+  try {
+    await sbFetch(`documents?id=eq.${encodeURIComponent(doc.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ description }),
+    });
+    return { ...next, description };
+  } catch (e) {
+    // A tracking failure must never block the client from seeing the estimate.
+    console.error("Estimate view tracking failed:", e);
+    return prior;
+  }
+}
+
+function estimateAcceptanceName(doc) {
+  return `[Client Accepted] ${doc?.name || "Estimate"}`;
+}
+function findEstimateAcceptanceInDocs(doc, docs) {
+  if (!doc || isEstimateAcceptanceDoc(doc)) return null;
+  const expected = estimateAcceptanceName(doc);
+  const acceptanceDocs = (docs || []).filter(isEstimateAcceptanceDoc);
+
+  // Source-estimate identity is authoritative. Legacy name-only acceptances
+  // are used only when there is exactly one possible legacy match; this avoids
+  // treating two separate estimates with the same display name as one record.
+  const exact = acceptanceDocs.find(d => d.description?.includes(`Source estimate ${doc.id}`));
+  if (exact) return exact;
+  const legacy = acceptanceDocs.filter(d => d.name === expected && !d.description?.includes("Source estimate "));
+  return legacy.length === 1 ? legacy[0] : null;
+}
+async function fetchEstimateAcceptance(doc) {
+  if (!doc?.id || isEstimateAcceptanceDoc(doc)) return null;
+  const expected = estimateAcceptanceName(doc);
+  const rows = await sbFetch(`documents?name=eq.${encodeURIComponent(expected)}&select=id,name,description,doc_type,url,uploaded_by,uploaded_at,linked_job_id`).catch(() => []);
+  const exact = (rows || []).find(d => d.description?.includes(`Source estimate ${doc.id}`));
+  if (exact) return exact;
+  const legacy = (rows || []).filter(d => d.name === expected && !d.description?.includes("Source estimate "));
+  return legacy.length === 1 ? legacy[0] : null;
+}
+function estimateAcceptanceRecordId(doc) {
+  // Deterministic per source estimate. This makes simultaneous/replayed
+  // acceptance attempts converge on the same primary key instead of creating
+  // two certificate rows.
+  const safe = String(doc?.id || "unknown").replace(/[^A-Za-z0-9_-]/g, "_");
+  return `EST-ACCEPT-${safe}`.slice(0, 120);
+}
+async function createEstimateAcceptanceDocOnce({ doc, job, dataUrl, description, uploadedBy }) {
+  const existing = await fetchEstimateAcceptance(doc);
+  if (existing) return { created: false, doc: existing };
+
+  const rec = {
+    id: estimateAcceptanceRecordId(doc),
+    name: estimateAcceptanceName(doc),
+    description: `${description} · Source estimate ${doc.id}`,
+    url: dataUrl,
+    file_type: "png",
+    doc_type: "estimate_acceptance",
+    uploaded_by: uploadedBy,
+    uploaded_at: new Date().toISOString(),
+    linked_job_id: job?.id || doc?.linked_job_id || null,
+  };
+
+  try {
+    await insertDoc(rec);
+    return { created: true, doc: rec };
+  } catch (e) {
+    // A parallel click/device may have won the insert race. Re-read before
+    // surfacing an error; if the acceptance now exists, treat this as success.
+    const raced = await fetchEstimateAcceptance(doc).catch(() => null);
+    if (raced) return { created: false, doc: raced };
+    throw e;
+  }
 }
 
 const FILE_ICONS = {
@@ -13350,6 +13559,7 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
     taxRate: "",
   });
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [toast, setToast] = useState(null);
 
   function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
@@ -13388,6 +13598,8 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
   const total = subtotal + taxAmt;
 
   async function saveEstimate() {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const W = 850, pad = 50;
@@ -13610,6 +13822,7 @@ function EstimateGenerator({ jobs, user, onClose, onSaved }) {
       setToast({ msg: "Error saving estimate", ok: false });
       setTimeout(() => setToast(null), 3000);
     }
+    savingRef.current = false;
     setSaving(false);
   }
 
@@ -13959,15 +14172,19 @@ async function renderEstimateAcceptanceImage({ doc, job, total, clientPrintedNam
 function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
   const sigPad = useSignaturePad();
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
-  const job = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
+  const job = jobs.find(j => j.id === doc.linked_job_id || doc.name?.includes(j.id) || doc.description?.includes(j.id));
   const [clientPrintedName, setClientPrintedName] = useState(job?.customerName || "");
   const amountMatch = doc.description?.match(/\$([\d,]+\.\d{2})/);
   const total = amountMatch ? amountMatch[1] : null;
 
   async function saveAcceptance() {
-    if (!sigPad.hasSig) return;
+    if (!sigPad.hasSig || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
+    const already = await fetchEstimateAcceptance(doc).catch(() => null);
+    if (already) { savingRef.current = false; setSaving(false); onDone({ alreadyAccepted: true }); return; }
     try {
       const sigDataUrl = sigPad.toDataURL();
       const dataUrl = await renderEstimateAcceptanceImage({
@@ -13976,15 +14193,10 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
       });
       const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      await insertDoc({
-        id: "DOC-" + Date.now(),
-        name: `[Client Accepted] ${doc.name}`,
+      await createEstimateAcceptanceDocOnce({
+        doc, job, dataUrl,
         description: `Client acceptance of ${doc.name}${job ? ` for ${job.id}` : ""} · Signed ${today}`,
-        url: dataUrl,
-        file_type: "png",
-        doc_type: "estimate",
-        uploaded_by: user.name,
-        uploaded_at: new Date().toISOString(),
+        uploadedBy: user.name,
       });
 
       if (job) {
@@ -13997,6 +14209,7 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
     } catch (e) {
       console.error(e);
     }
+    savingRef.current = false;
     setSaving(false);
   }
 
@@ -14063,15 +14276,20 @@ function EstimateAcceptance({ doc, jobs, user, onDone, onCancel }) {
 // this job" task. Also stamps the new estimate_approved_* columns on the job
 // so there's a clear record of who logged the call and when.
 function EstimatePhoneAccept({ doc, jobs, user, onDone, onCancel }) {
-  const job = jobs.find(j => doc.name?.includes(j.id) || doc.description?.includes(j.id));
+  const job = jobs.find(j => j.id === doc.linked_job_id || doc.name?.includes(j.id) || doc.description?.includes(j.id));
   const [clientPrintedName, setClientPrintedName] = useState(job?.customerName || "");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const amountMatch = doc.description?.match(/\$([\d,]+\.\d{2})/);
   const total = amountMatch ? amountMatch[1] : null;
 
   async function confirm() {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
+    const already = await fetchEstimateAcceptance(doc).catch(() => null);
+    if (already) { savingRef.current = false; setSaving(false); onDone({ alreadyAccepted: true }); return; }
     try {
       const dataUrl = await renderEstimateAcceptanceImage({
         doc, job, total, clientPrintedName, sigDataUrl: null,
@@ -14079,24 +14297,27 @@ function EstimatePhoneAccept({ doc, jobs, user, onDone, onCancel }) {
       });
       const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      await insertDoc({
-        id: "DOC-" + Date.now(),
-        name: `[Client Accepted] ${doc.name}`,
+      await createEstimateAcceptanceDocOnce({
+        doc, job, dataUrl,
         description: `Client acceptance of ${doc.name}${job ? ` for ${job.id}` : ""} · Accepted by phone ${today}${note ? ` · ${note}` : ""}`,
-        url: dataUrl,
-        file_type: "png",
-        doc_type: "estimate",
-        uploaded_by: user.name,
-        uploaded_at: new Date().toISOString(),
+        uploadedBy: user.name,
       });
 
       if (job) {
-        await sbFetch(`jobs?id=eq.${job.id}`, { method: "PATCH", body: JSON.stringify({
-          estimate_approved_at: new Date().toISOString(),
-          estimate_approved_by: user.name,
-          estimate_approval_method: "phone_call",
-          estimate_approval_note: note || null,
-        }) });
+        // These audit columns were introduced in some database versions but
+        // are not required for acceptance to succeed. If the live Supabase
+        // schema does not have them, keep going — the acceptance document,
+        // job transition, and scheduling workflow are the source of truth.
+        try {
+          await sbFetch(`jobs?id=eq.${job.id}`, { method: "PATCH", body: JSON.stringify({
+            estimate_approved_at: new Date().toISOString(),
+            estimate_approved_by: user.name,
+            estimate_approval_method: "phone_call",
+            estimate_approval_note: note || null,
+          }) });
+        } catch (auditErr) {
+          console.warn("Optional estimate phone-approval audit fields were not saved:", auditErr);
+        }
         await notifyOwnersToScheduleJob(job, { contextLabel: "Estimate accepted (by phone)", createdBy: user.name });
       }
 
@@ -14104,6 +14325,7 @@ function EstimatePhoneAccept({ doc, jobs, user, onDone, onCancel }) {
     } catch (e) {
       console.error(e);
     }
+    savingRef.current = false;
     setSaving(false);
   }
 
@@ -14369,9 +14591,9 @@ function DocsTab({ user, jobs, isDesktopView }) {
 }
 
 // ── ShareModal — top-level to prevent remount on keystroke ────────────────────
-function ShareModal({ type, doc, docType, value, setValue, onSend, onClose }) {
+function ShareModal({ type, doc, docType, value, setValue, onSend, onClose, canSign = true }) {
   const isEmail = type === "email";
-  const isSignFlow = (docType === "estimate" || docType === "workauth") && !doc.name?.startsWith("[Client Accepted]");
+  const isSignFlow = canSign && (docType === "estimate" || docType === "workauth") && !doc.name?.startsWith("[Client Accepted]");
   const signWord = docType === "workauth" ? "reviews and signs the Work Authorization" : "reviews the estimate, and signs online";
   const steps = isEmail
     ? ["Enter the recipient's email", "Tap Send — your email app opens pre-filled with a secure link", isSignFlow ? `The client taps the link, ${signWord}` : "The client taps the link to view or download it", "Review and send the email"]
@@ -14945,8 +15167,8 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
   async function load() {
     setLoading(true);
     try {
-      const all = await sbFetch(`documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type`);
-      setDocs((all || []).filter(d => d.doc_type === docType));
+      const all = await sbFetch(`documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id`);
+      setDocs((all || []).filter(d => docType === "estimate" ? (d.doc_type === "estimate" || isEstimateAcceptanceDoc(d)) : d.doc_type === docType));
     } catch {}
     setLoading(false);
   }
@@ -14978,7 +15200,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
   }
 
   async function copyDocLink(doc) {
-    const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+    const isSignFlow = docType === "estimate" && !isEstimateAcceptanceDoc(doc) && !findEstimateAcceptanceInDocs(doc, docs);
     const link = isSignFlow
       ? `${window.location.origin}/accept-estimate/${doc.id}`
       : `${window.location.origin}/view-doc/${doc.id}`;
@@ -14994,7 +15216,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
   async function sendEmail(doc) {
     if (!emailTo) return;
     try {
-      const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const isSignFlow = docType === "estimate" && !isEstimateAcceptanceDoc(doc) && !findEstimateAcceptanceInDocs(doc, docs);
       const link = isSignFlow
         ? `${window.location.origin}/accept-estimate/${doc.id}`
         : `${window.location.origin}/view-doc/${doc.id}`;
@@ -15027,7 +15249,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
   async function sendText(doc) {
     if (!smsTo) return;
     try {
-      const isSignFlow = docType === "estimate" && !doc.name?.startsWith("[Client Accepted]");
+      const isSignFlow = docType === "estimate" && !isEstimateAcceptanceDoc(doc) && !findEstimateAcceptanceInDocs(doc, docs);
       const link = isSignFlow
         ? `${window.location.origin}/accept-estimate/${doc.id}`
         : `${window.location.origin}/view-doc/${doc.id}`;
@@ -15076,8 +15298,8 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
     <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column" }}>
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
       {lightbox && <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />}
-      {emailModal && <ShareModal type="email" doc={emailModal} docType={docType} value={emailTo} setValue={setEmailTo} onSend={sendEmail} onClose={() => setEmailModal(null)} />}
-      {smsModal && <ShareModal type="sms" doc={smsModal} docType={docType} value={smsTo} setValue={setSmsTo} onSend={sendText} onClose={() => setSmsModal(null)} />}
+      {emailModal && <ShareModal type="email" doc={emailModal} docType={docType} canSign={docType !== "estimate" || !findEstimateAcceptanceInDocs(emailModal, docs)} value={emailTo} setValue={setEmailTo} onSend={sendEmail} onClose={() => setEmailModal(null)} />}
+      {smsModal && <ShareModal type="sms" doc={smsModal} docType={docType} canSign={docType !== "estimate" || !findEstimateAcceptanceInDocs(smsModal, docs)} value={smsTo} setValue={setSmsTo} onSend={sendText} onClose={() => setSmsModal(null)} />}
 
       {/* Generator overlays */}
       {creatingDoc && docType === "invoice" && (
@@ -15106,13 +15328,13 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
       {acceptingDoc && (
         <EstimateAcceptance doc={acceptingDoc} jobs={jobs} user={user}
           onCancel={() => setAcceptingDoc(null)}
-          onDone={() => { setAcceptingDoc(null); load(); setToast({ msg: "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+          onDone={(result) => { setAcceptingDoc(null); load(); onJobsChanged?.(); setToast({ msg: result?.alreadyAccepted ? "This estimate was already accepted — no duplicate was created." : "Client acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3500); }}
         />
       )}
       {phoneAcceptingDoc && (
         <EstimatePhoneAccept doc={phoneAcceptingDoc} jobs={jobs} user={user}
           onCancel={() => setPhoneAcceptingDoc(null)}
-          onDone={() => { setPhoneAcceptingDoc(null); load(); setToast({ msg: "Phone acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3000); }}
+          onDone={(result) => { setPhoneAcceptingDoc(null); load(); onJobsChanged?.(); setToast({ msg: result?.alreadyAccepted ? "This estimate was already accepted — no duplicate was created." : "Phone acceptance saved!", ok: true }); setTimeout(() => setToast(null), 3500); }}
         />
       )}
 
@@ -15126,26 +15348,31 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
             </button>
           </div>
         </div>
-        {loading ? <Spinner msg={`Loading ${title.toLowerCase()}…`} /> : docs.length === 0 ? (
+        {loading ? <Spinner msg={`Loading ${title.toLowerCase()}…`} /> : displayDocs.length === 0 ? (
           <div style={{ textAlign: "center", padding: 48 }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>{icon}</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: BRAND.navy }}>No {title.toLowerCase()} yet</div>
             <div style={{ fontSize: 13, color: BRAND.muted, marginTop: 4 }}>{emptyMsg}</div>
           </div>
-        ) : docs.map(doc => {
-          const isAcceptedCopy = docType === "estimate" && doc.name?.startsWith("[Client Accepted]");
-          const hasAcceptedCopy = docType === "estimate" && !isAcceptedCopy &&
-            docs.some(d => d.name === `[Client Accepted] ${doc.name}`);
+        ) : displayDocs.map(doc => {
+          const acceptanceDoc = docType === "estimate" ? findEstimateAcceptanceInDocs(doc, docs) : null;
+          const hasAcceptedCopy = !!acceptanceDoc;
           return (
-          <div key={doc.id} style={{ ...S.card, ...(isAcceptedCopy ? { borderLeft: "4px solid #16A34A" } : {}) }}>
+          <div key={doc.id} style={{ ...S.card, ...(hasAcceptedCopy ? { borderLeft: "4px solid #16A34A" } : {}) }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ fontSize: 32, flexShrink: 0 }}>{isAcceptedCopy ? "✅" : icon}</div>
+              <div style={{ fontSize: 32, flexShrink: 0 }}>{hasAcceptedCopy ? "✅" : icon}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: BRAND.navy, wordBreak: "break-word" }}>{doc.name}</div>
-                {doc.description && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>{doc.description}</div>}
+                {stripEstimateViewMetaDescription(doc.description) && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>{stripEstimateViewMetaDescription(doc.description)}</div>}
                 <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 4 }}>
                   {doc.uploaded_by} · {fmtDate(doc.uploaded_at)}
                 </div>
+                {docType === "estimate" && getEstimateViewMeta(doc) && (
+                  <div style={{ fontSize: 11, color: "#1D4ED8", fontWeight: 700, marginTop: 6 }}>
+                    👁 Client viewed {fmtTs(getEstimateViewMeta(doc).lastViewedAt)}
+                    {getEstimateViewMeta(doc).viewCount > 1 ? ` · ${getEstimateViewMeta(doc).viewCount} opens` : ""}
+                  </div>
+                )}
                 {hasAcceptedCopy && (
                   <div style={{ marginTop: 6 }}>
                     <span style={{ fontSize: 10.5, fontWeight: 700, color: "#16A34A", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 5, padding: "2px 8px" }}>✓ Client Accepted</span>
@@ -15167,17 +15394,22 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
                   <button onClick={() => copyDocLink(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                     🔗 Copy Link
                   </button>
-                  {docType === "estimate" && !isAcceptedCopy && (
-                    <button onClick={() => setAcceptingDoc(doc)} style={{ background: hasAcceptedCopy ? "none" : "#16A34A", border: hasAcceptedCopy ? `1.5px solid #16A34A` : "none", borderRadius: 7, color: hasAcceptedCopy ? "#16A34A" : BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
-                      {hasAcceptedCopy ? "✍️ Sign Again" : "✍️ Client Accept"}
+                  {docType === "estimate" && acceptanceDoc && (
+                    <button onClick={() => open(acceptanceDoc)} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
+                      ✅ View Acceptance
                     </button>
                   )}
-                  {docType === "estimate" && !isAcceptedCopy && (
+                  {docType === "estimate" && !hasAcceptedCopy && (
+                    <button onClick={() => setAcceptingDoc(doc)} style={{ background: "#16A34A", border: "none", borderRadius: 7, color: BRAND.white, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
+                      ✍️ Client Accept
+                    </button>
+                  )}
+                  {docType === "estimate" && !hasAcceptedCopy && (
                     <button onClick={() => setPhoneAcceptingDoc(doc)} style={{ background: "none", border: `1.5px solid ${BRAND.navy}`, borderRadius: 7, color: BRAND.navy, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>
                       📞 Accepted by Phone
                     </button>
                   )}
-                  {allowDelete && <button onClick={() => remove(doc.id)} style={{ background: "none", border: `1px solid ${BRAND.border}`, borderRadius: 7, color: "#DC2626", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>Delete</button>}
+                  {allowDelete && !(docType === "estimate" && hasAcceptedCopy) && <button onClick={() => remove(doc.id)} style={{ background: "none", border: `1px solid ${BRAND.border}`, borderRadius: 7, color: "#DC2626", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: "pointer" }}>Delete</button>}
                 </div>
               </div>
             </div>
@@ -24040,38 +24272,59 @@ function PublicEstimateAcceptPage({ docId }) {
   const [alreadyAccepted, setAlreadyAccepted] = useState(false);
   const [done, setDone] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [clientPrintedName, setClientPrintedName] = useState("");
   const [mode, setMode] = useState("accept"); // "accept" | "decline"
   const [declineReason, setDeclineReason] = useState("");
   const [declining, setDeclining] = useState(false);
+  const decliningRef = useRef(false);
   const [declined, setDeclined] = useState(false);
   const [zoomedImg, setZoomedImg] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const rows = await sbFetch(`documents?id=eq.${encodeURIComponent(docId)}&select=id,name,description,doc_type,url`);
+        const rows = await sbFetch(`documents?id=eq.${encodeURIComponent(docId)}&select=id,name,description,doc_type,url,linked_job_id`);
         const rec = rows?.[0];
         if (!rec || rec.doc_type !== "estimate" || rec.name?.startsWith("[Client Accepted]")) {
           setNotFound(true); setLoading(false); return;
         }
-        setDoc(rec);
+        // Reaching this public route is the actual client link-open event.
+        // Capture it before acceptance/decline checks so every valid open is
+        // recorded, including repeat opens after a decision.
+        const viewMeta = await recordEstimateLinkView(rec).catch(() => null);
+        const trackedRec = viewMeta?.description ? { ...rec, description: viewMeta.description } : rec;
+        setDoc(trackedRec);
         setClientPrintedName("");
 
-        // Has this estimate already been signed? Check for its acceptance copy.
-        const acceptedRows = await sbFetch(`documents?name=eq.${encodeURIComponent("[Client Accepted] " + rec.name)}&select=id`);
-        if (acceptedRows?.length) setAlreadyAccepted(true);
+        // Has THIS source estimate already been signed? Source-estimate ID is
+        // authoritative so two estimates with the same display name cannot
+        // accidentally share acceptance state.
+        const existingAcceptance = await fetchEstimateAcceptance(trackedRec).catch(() => null);
+        if (existingAcceptance) setAlreadyAccepted(true);
 
         // Try to resolve the linked job (description reads "Estimate for <jobId> · ...")
-        const jobIdMatch = rec.description?.match(/^Estimate for (\S+) ·/);
-        const parsedJobId = jobIdMatch && jobIdMatch[1] !== "job" ? jobIdMatch[1] : null;
+        const jobIdMatch = trackedRec.description?.match(/^Estimate for (\S+) ·/);
+        const parsedJobId = trackedRec.linked_job_id || (jobIdMatch && jobIdMatch[1] !== "job" ? jobIdMatch[1] : null);
         if (parsedJobId) {
-          const jobRows = await sbFetch(`jobs?id=eq.${encodeURIComponent(parsedJobId)}&select=id,customer_name,address,job_type,photo_names`);
+          const jobRows = await sbFetch(`jobs?id=eq.${encodeURIComponent(parsedJobId)}&select=id,customer_name,address,job_type,photo_names,is_estimate,workflow_stage`);
           const jr = jobRows?.[0];
           if (jr) {
             let photoNames = [];
             try { photoNames = JSON.parse(jr.photo_names || "[]"); } catch {}
-            setJob({ id: jr.id, customerName: jr.customer_name, address: jr.address || "", jobType: jr.job_type || "", photoNames });
+            setJob({
+              id: jr.id,
+              customerName: jr.customer_name,
+              address: jr.address || "",
+              jobType: jr.job_type || "",
+              photoNames,
+              isEstimate: jr.is_estimate,
+              workflowStage: jr.workflow_stage || "",
+            });
+            if (jr.workflow_stage === "Declined" && !existingAcceptance) {
+              setDeclined(true);
+              setMode("decline");
+            }
           }
         }
       } catch {
@@ -24085,8 +24338,11 @@ function PublicEstimateAcceptPage({ docId }) {
   const total = amountMatch ? amountMatch[1] : null;
 
   async function submitAcceptance() {
-    if (!clientPrintedName.trim() || !doc) return;
+    if (!clientPrintedName.trim() || !doc || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
+    const already = await fetchEstimateAcceptance(doc).catch(() => null);
+    if (already) { setAlreadyAccepted(true); savingRef.current = false; setSaving(false); return; }
     try {
       const dataUrl = await renderEstimateAcceptanceImage({
         doc, job, total, clientPrintedName,
@@ -24094,15 +24350,10 @@ function PublicEstimateAcceptPage({ docId }) {
       });
       const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      await insertDoc({
-        id: "DOC-" + Date.now(),
-        name: `[Client Accepted] ${doc.name}`,
+      await createEstimateAcceptanceDocOnce({
+        doc, job, dataUrl,
         description: `Client accepted online${clientPrintedName ? ` by ${clientPrintedName}` : ""}${job ? ` for ${job.id}` : ""} · Signed ${today}`,
-        url: dataUrl,
-        file_type: "png",
-        doc_type: "estimate",
-        uploaded_by: clientPrintedName || "Client (online)",
-        uploaded_at: new Date().toISOString(),
+        uploadedBy: clientPrintedName || "Client (online)",
       });
 
       if (job) {
@@ -24114,26 +24365,32 @@ function PublicEstimateAcceptPage({ docId }) {
         });
       }
 
+      setJob(prev => prev ? { ...prev, isEstimate: false, workflowStage: "Approved to Begin" } : prev);
       setDone(true);
     } catch (e) {
       console.error(e);
     }
+    savingRef.current = false;
     setSaving(false);
   }
 
   async function submitDecline() {
-    if (!doc) return;
+    if (!doc || decliningRef.current) return;
+    decliningRef.current = true;
     setDeclining(true);
     try {
       await notifyOwnersOfDecline(job, doc, {
         reason: declineReason.trim(),
         declinedBy: clientPrintedName.trim() || job?.customerName || "",
       });
+      setJob(prev => prev ? { ...prev, isEstimate: true, workflowStage: "Declined" } : prev);
       setDeclined(true);
     } catch (e) {
       console.error(e);
+    } finally {
+      decliningRef.current = false;
+      setDeclining(false);
     }
-    setDeclining(false);
   }
 
   if (loading) {
