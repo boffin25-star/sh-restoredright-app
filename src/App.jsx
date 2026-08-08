@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-08-dashboard-v10-login-approved — v9 estimate view-tracking master with ONLY the approved desktop/mobile login branding applied from App-final-login-approved(1).jsx; all post-login app logic, styling, estimate workflow, UAT fixes, and link-view tracking preserved.";
+const BUILD_STAMP = "2026-08-08-dashboard-v11-splash-profile — v10 approved login preserved; second App Hub splash now uses the same inverted blueprint-house background as login, and the signed-in user avatar/profile control is restored and kept visible in the top-right header on both desktop and mobile.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -1644,13 +1644,14 @@ function AppHubScreen({ user, onSelect, isDesktopView }) {
           padding:30px 18px;
           font-family:'Inter',system-ui,sans-serif;
           background:
-            linear-gradient(rgba(247,250,255,.86),rgba(247,250,255,.92)),
-            url("/blueprint-house.jpg") center center / cover no-repeat fixed;
+            linear-gradient(180deg,rgba(13,59,128,.08),rgba(13,59,128,.26)),
+            url("/blueprint-house-login-inverted.jpg") center center / cover no-repeat fixed;
+          background-color:#0D3B80;
         }
         .sh-hub-shell{
           width:min(100%,${isDesktopView ? "780px" : "430px"});
-          background:rgba(255,255,255,.93);
-          border:1px solid #9FBEEC;
+          background:rgba(255,255,255,.95);
+          border:1px solid rgba(255,255,255,.48);
           border-radius:20px;
           padding:${isDesktopView ? "32px 36px 30px" : "24px 16px 22px"};
           box-shadow:0 18px 50px rgba(13,59,128,.14);
@@ -25274,7 +25275,7 @@ export default function App() {
           .sh-notif-button i{position:absolute;right:-3px;top:-5px;background:#dc2626;color:#fff;border-radius:99px;font-size:8px;font-style:normal;min-width:14px;height:14px;display:grid;place-items:center}
           .sh-erik-top span{width:29px;height:29px;border-radius:50%;background:#0d3b80;color:#fff;display:grid;place-items:center;font-weight:800}.sh-erik-top small{font-size:9px;font-weight:700}
           .sh-user-chip{display:flex;align-items:center;gap:7px;border-left:1px solid #e4eaf2;padding-left:11px}
-          .sh-user-chip>div{display:flex;flex-direction:column;min-width:90px}.sh-user-chip strong{font-size:10px}.sh-user-chip small{font-size:8px;color:#66768d;margin-top:2px}
+          .sh-user-copy{display:flex;flex-direction:column;min-width:90px}.sh-user-chip strong{font-size:10px}.sh-user-chip small{font-size:8px;color:#66768d;margin-top:2px}
           .sh-user-chip>button{border:0;background:transparent;color:#66768d;cursor:pointer}
           .sh-backup-chip{border:0;background:#fee2e2;color:#b91c1c;border-radius:7px;font-size:9px;font-weight:700;padding:6px 9px}
           .sh-dashboard{flex:1;overflow-y:auto;padding:22px;background:rgba(255,255,255,.12)}
@@ -25416,7 +25417,11 @@ export default function App() {
             }
 
             .sh-topbar{height:74px;padding:0 12px;gap:8px;position:relative;top:auto;left:auto;right:auto;border-bottom:0;box-shadow:none}.sh-mobile-brand{display:flex;align-items:center;width:165px;flex-shrink:0}.sh-mobile-brand img{width:155px;max-height:54px;object-fit:contain;object-position:left center}
-            .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-erik-top{display:none!important}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:8px}
+            .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-user-copy,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-erik-top{display:none!important}.sh-user-chip{display:flex!important;align-items:center!important;border-left:0;padding-left:0;flex-shrink:0}.sh-top-actions{gap:8px;margin-left:auto;display:flex!important;align-items:center!important}
+            .mobile .sh-user-chip>div:first-child{display:block!important;visibility:visible!important;opacity:1!important;position:relative;z-index:160}
+            .mobile .sh-user-chip>div:first-child>div:first-child{box-shadow:0 0 0 2px #0D3B80,0 2px 8px rgba(13,59,128,.18)}
+            .mobile .sh-user-chip>div:first-child>div:nth-child(2){z-index:220!important}
+
             .sh-dashboard{padding:20px 14px 26px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:16px}.sh-dash-title{font-size:24px;line-height:1.15}.sh-dash-subtitle{font-size:13px;line-height:1.4;margin-top:7px}.sh-dash-actions{display:none}
             .sh-dash-hero:after{font-size:40px;left:42%;top:-4px}
             .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:11px}.sh-metric-card{min-height:112px;padding:14px 12px;grid-template-columns:44px auto 1fr;gap:9px}.sh-metric-icon{width:44px;height:44px}.sh-metric-icon svg{width:23px;height:23px}.sh-metric-number{font-size:27px}.sh-metric-copy strong{font-size:12px;line-height:1.15}.sh-metric-copy small{font-size:10px;line-height:1.25;margin-top:3px}
@@ -25752,9 +25757,9 @@ export default function App() {
                 </button>
               );
             })()}
-            <div className="sh-user-chip">
+            <div className="sh-user-chip" title={`${user.name} — profile`}>
               <ProfileAvatar user={user} size={34} />
-              <div><strong>{user.name}</strong><small>Team Member</small></div>
+              <div className="sh-user-copy"><strong>{user.name}</strong><small>Team Member</small></div>
               <button onClick={() => setUser(null)} title="Sign out">⌄</button>
             </div>
           </div>
