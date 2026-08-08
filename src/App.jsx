@@ -12,7 +12,7 @@ const HOLDUP_IMG = "/holdup.png";
 const DESKTOP_BOX_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgNTIwIj4KPHJlY3QgeD0iMTgiIHk9IjE4IiB3aWR0aD0iNDg0IiBoZWlnaHQ9IjQ4NCIgcng9IjgiIGZpbGw9IiMwRDNCODAiLz4KPHJlY3QgeD0iMzYiIHk9IjM2IiB3aWR0aD0iNDQ4IiBoZWlnaHQ9IjQ0OCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIvPgo8cmVjdCB4PSI1MSIgeT0iNTEiIHdpZHRoPSI0MTgiIGhlaWdodD0iNDE4IiByeD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjMiLz4KPHRleHQgeD0iMjYwIiB5PSIyNTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNTAiIGZvbnQtd2VpZ2h0PSI3MDAiPlMmYW1wO0g8L3RleHQ+CjxsaW5lIHgxPSI5MyIgeTE9IjI4OCIgeDI9IjQyNyIgeTI9IjI4OCIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjUiLz4KPHRleHQgeD0iMjYwIiB5PSIzNjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSI1OCIgZm9udC13ZWlnaHQ9IjcwMCIgbGV0dGVyLXNwYWNpbmc9IjUiPlNFUlZJQ0VTPC90ZXh0Pgo8bGluZSB4MT0iOTUiIHkxPSIzOTEiIHgyPSI0MjUiIHkyPSIzOTEiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cjx0ZXh0IHg9IjI2MCIgeT0iNDM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRkZGRkZGIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjciIGZvbnQtd2VpZ2h0PSI3MDAiIGxldHRlci1zcGFjaW5nPSI3Ij5TUE9LQU5FIExMQzwvdGV4dD4KPC9zdmc+";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-08-dashboard-v12-desktop-inverted — DESKTOP ONLY visual redesign: white left navigation, official S&H box logo treatment, same inverted blueprint-house branding as login behind the desktop workspace, white cards, sidebar Ask Erik control, Restoration Done Right retained at sidebar bottom; mobile view remains unchanged from v11.";
+const BUILD_STAMP = "2026-08-08-dashboard-v14-view-switch — v13 preserved; signed-in header now includes a persistent Mobile/Desktop view switch and remembers the user choice.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -20269,7 +20269,7 @@ function OfflineBanner() {
   );
 }
 
-function ProfileAvatar({ user, size = 36 }) {
+function ProfileAvatar({ user, size = 36, onSignOut = null }) {
   const [pic, setPic] = useState(() => getProfilePic(user?.id) || null);
   const [uploading, setUploading] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -20351,6 +20351,7 @@ function ProfileAvatar({ user, size = 36 }) {
             <input type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={handleUpload} disabled={uploading} />
           </label>
           {pic && <button onClick={removePic} style={{ display: "block", width: "100%", padding: "11px 14px", fontSize: 13, fontWeight: 600, color: "#DC2626", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>🗑 Remove Photo</button>}
+          {onSignOut && <button onClick={() => { setShowMenu(false); onSignOut(); }} style={{ display: "block", width: "100%", padding: "11px 14px", fontSize: 13, fontWeight: 800, color: BRAND.navy, background: "#F3F7FC", border: "none", borderTop: `1px solid ${BRAND.border}`, cursor: "pointer", textAlign: "left" }}>↪ Sign Out</button>}
           <button onClick={() => setShowMenu(false)} style={{ display: "block", width: "100%", padding: "11px 14px", fontSize: 13, color: BRAND.muted, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>Cancel</button>
         </div>
       )}
@@ -25353,6 +25354,14 @@ export default function App() {
           .sh-search-results button:last-child{border-bottom:0}.sh-search-results button:hover{background:#f5f8fc}
           .sh-search-results strong{font-size:11px;color:#17345f}.sh-search-results small{font-size:9px;color:#66768d;margin-top:2px}
           .sh-top-actions{margin-left:auto;display:flex;align-items:center;gap:11px}
+          .sh-view-toggle{
+            height:36px;border:1px solid #D7E2F0;background:#F7FAFE;color:#0D3B80;
+            border-radius:9px;padding:0 10px;display:flex;align-items:center;gap:6px;
+            font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;
+          }
+          .sh-view-toggle:hover{background:#EAF2FC;border-color:#B9CCE6}
+          .sh-view-toggle span{font-size:15px;line-height:1}
+          .sh-view-toggle b{font-size:10px}
           .sh-notif-button,.sh-erik-top{border:0;background:#fff;cursor:pointer;position:relative;display:flex;align-items:center;gap:5px;color:#17345f}
           .sh-notif-button i{position:absolute;right:-3px;top:-5px;background:#dc2626;color:#fff;border-radius:99px;font-size:8px;font-style:normal;min-width:14px;height:14px;display:grid;place-items:center}
           .sh-erik-top span{width:29px;height:29px;border-radius:50%;background:#0d3b80;color:#fff;display:grid;place-items:center;font-weight:800}.sh-erik-top small{font-size:9px;font-weight:700}
@@ -25534,7 +25543,7 @@ export default function App() {
             }
 
             .sh-topbar{height:74px;padding:0 12px;gap:8px;position:relative;top:auto;left:auto;right:auto;border-bottom:0;box-shadow:none}.sh-mobile-brand{display:flex;align-items:center;width:165px;flex-shrink:0}.sh-mobile-brand img{width:155px;max-height:54px;object-fit:contain;object-position:left center}
-            .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-user-copy,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-erik-top{display:none!important}.sh-user-chip{display:flex!important;align-items:center!important;border-left:0;padding-left:0;flex-shrink:0}.sh-top-actions{gap:8px;margin-left:auto;display:flex!important;align-items:center!important}
+            .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-user-copy,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-erik-top{display:none!important}.sh-user-chip{display:flex!important;align-items:center!important;border-left:0;padding-left:0;flex-shrink:0}.sh-top-actions{gap:8px;margin-left:auto;display:flex!important;align-items:center!important}.mobile .sh-view-toggle{width:34px;height:34px;padding:0;justify-content:center;border-radius:50%;background:#EEF4FC;border-color:#C8D7EA}.mobile .sh-view-toggle b{display:none}.mobile .sh-view-toggle span{font-size:15px}
             .mobile .sh-user-chip>div:first-child{display:block!important;visibility:visible!important;opacity:1!important;position:relative;z-index:160}
             .mobile .sh-user-chip>div:first-child>div:first-child{box-shadow:0 0 0 2px #0D3B80,0 2px 8px rgba(13,59,128,.18)}
             .mobile .sh-user-chip>div:first-child>div:nth-child(2){z-index:220!important}
@@ -25869,6 +25878,15 @@ export default function App() {
             {backupReminder && tab !== "backup" && (
               <button className="sh-backup-chip" onClick={() => { setTab("backup"); setBackupReminder(false); }}>Backup</button>
             )}
+            <button
+              className="sh-view-toggle"
+              onClick={toggleViewMode}
+              title={isDesktopView ? "Switch to mobile view" : "Switch to desktop view"}
+              aria-label={isDesktopView ? "Switch to mobile view" : "Switch to desktop view"}
+            >
+              <span aria-hidden="true">{isDesktopView ? "📱" : "🖥️"}</span>
+              <b>{isDesktopView ? "Mobile" : "Desktop"}</b>
+            </button>
             {(() => {
               const count = (allNotifs.newJobs?.length || 0) + (allNotifs.newTasks?.length || 0) + (allNotifs.followUps?.length || 0) + (allNotifs.mentions?.length || 0) + (allNotifs.changeOrderApprovals?.length || 0) + (allNotifs.purchaseApprovals?.length || 0) + (brPendingApprovals?.length || 0) + (brScheduleConflicts?.length || 0);
               return (
@@ -25878,7 +25896,7 @@ export default function App() {
               );
             })()}
             <div className="sh-user-chip" title={`${user.name} — profile`}>
-              <ProfileAvatar user={user} size={34} />
+              <ProfileAvatar user={user} size={34} onSignOut={() => setUser(null)} />
               <div className="sh-user-copy"><strong>{user.name}</strong><small>Team Member</small></div>
               <button onClick={() => setUser(null)} title="Sign out">⌄</button>
             </div>
