@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-style-math-merged-v4 — Latest S&H RestoredRight branding and responsive shell merged with audited math: updated App Hub splash, swipeable circular-icon mobile nav, blueprint mobile backgrounds, blue footer, contract split rounding, 2026 mileage defaults, destination-tax safety, WA L&I hourly-premium modeling, use-tax handling, line-item-only calculations, and original-base percentage-pay rule.";
+const BUILD_STAMP = "2026-08-07-dashboard-v5 — Dashboard task source corrected for admin/team visibility, mobile dashboard enlarged for readability, header avatar restored as profile control, and chatbot removed from header while retaining floating Ask Erik.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2458,25 +2458,10 @@ function TabIconButton({ tab, active, onClick, badge }) {
 
 // ─── Home Screen — grid of all tabs as circular card-style icons, shown as
 // the landing page. Tapping any tile navigates straight to that tab.
-function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQuickAction, isDesktopView, onOpenChatbot }) {
+function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, standaloneTasks = [], onQuickAction, isDesktopView, onOpenChatbot }) {
   const [showQuickActions, setShowQuickActions] = useState(false);
-  const [dashboardStandaloneTasks, setDashboardStandaloneTasks] = useState([]);
-
-  // Keep Dashboard "My Tasks" aligned with the real My Tasks tab:
-  // that screen combines job-linked tasks AND standalone/action-item tasks.
-  useEffect(() => {
-    let active = true;
-    async function loadDashboardStandaloneTasks() {
-      try {
-        const rows = await fetchStandaloneTasks();
-        if (active) setDashboardStandaloneTasks(rows || []);
-      } catch {
-        if (active) setDashboardStandaloneTasks([]);
-      }
-    }
-    loadDashboardStandaloneTasks();
-    return () => { active = false; };
-  }, [jobs, user?.name]);
+  const dashboardStandaloneTasks = standaloneTasks;
+  const dashboardShowsTeamTasks = canAdmin(user);
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const firstName = user?.name?.split(" ")[0] || "there";
@@ -2484,7 +2469,7 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
   (jobs || []).forEach(j => {
     (j.jobTasks || []).forEach(t => {
       const assignees = parseAssignees(t.assignedTo);
-      if (!assignees.includes(user?.name)) return;
+      if (!dashboardShowsTeamTasks && !assignees.includes(user?.name)) return;
       if (t.status === "Completed") return;
       jobAssignedTasks.push({
         ...t,
@@ -2498,7 +2483,7 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
 
   const standaloneAssignedTasks = (dashboardStandaloneTasks || [])
     .map(t => ({ ...t, assignedTo: parseAssignees(t.assignedTo), isStandalone: true }))
-    .filter(t => t.assignedTo.includes(user?.name) && t.status !== "Completed");
+    .filter(t => (dashboardShowsTeamTasks || t.assignedTo.includes(user?.name)) && t.status !== "Completed");
 
   // Same active-task ordering philosophy as My Tasks: overdue first, then nearest follow-up/date assigned.
   const assignedTasks = [...jobAssignedTasks, ...standaloneAssignedTasks].sort((a, b) => {
@@ -2538,7 +2523,7 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
   const taskPreview = assignedTasks.slice(0, isDesktopView ? 8 : 5);
 
   const metricCards = [
-    { label:"My Tasks", value: assignedTasks.length, sub: dueToday.length ? `${dueToday.length} due today` : "Active tasks", icon:"tasks", tint:"#EFF6FF", ink:"#1D4ED8", tab:"tasks" },
+    { label: dashboardShowsTeamTasks ? "Team Tasks" : "My Tasks", value: assignedTasks.length, sub: dueToday.length ? `${dueToday.length} due today` : "Active tasks", icon:"tasks", tint:"#EFF6FF", ink:"#1D4ED8", tab:"tasks" },
     { label:"Jobs", value: inProgressJobs.length, sub:"In progress", icon:"jobs", tint:"#F0FDF4", ink:"#15803D", tab:"jobs" },
     { label:"Pending", value: pendingAuthJobs.length + approvalCount, sub:"Authorizations / approvals", icon:"workauths", tint:"#FFF7E6", ink:"#B45309", tab:"workauths" },
     { label:"Scheduled", value: scheduled.length, sub:"Next 7 days", icon:"calendar", tint:"#F5F3FF", ink:"#6D28D9", tab:"calendar" },
@@ -2589,12 +2574,12 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
       <div className="sh-dash-columns">
         <section className="sh-panel">
           <div className="sh-panel-head">
-            <strong>My Tasks</strong>
+            <strong>{dashboardShowsTeamTasks ? "Team Tasks" : "My Tasks"}</strong>
             <button onClick={() => onSelect("tasks")}>View All</button>
           </div>
           <div className="sh-panel-body">
             {taskPreview.length === 0 ? (
-              <div className="sh-empty">No active tasks assigned to you.</div>
+              <div className="sh-empty">{dashboardShowsTeamTasks ? "No active team tasks." : "No active tasks assigned to you."}</div>
             ) : taskPreview.map((t,i) => {
               const p = PRIORITIES.find(x => x.value === t.priority) || PRIORITIES[2];
               return (
@@ -24368,6 +24353,7 @@ export default function App() {
     setTab(action === "addReceipt" ? "receipts" : "mileage");
   }
   const [jobs, setJobs]   = useState([]);
+  const [dashboardStandaloneTasks, setDashboardStandaloneTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [initErr, setInitErr] = useState(null);
   const [backupReminder, setBackupReminder] = useState(false);
@@ -24663,8 +24649,12 @@ export default function App() {
   const loadJobs = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchJobs();
+      const [data, standalone] = await Promise.all([
+        fetchJobs(),
+        fetchStandaloneTasks().catch(() => [])
+      ]);
       setJobs(data);
+      setDashboardStandaloneTasks(standalone || []);
       setInitErr(null);
     } catch (e) {
       console.error("loadJobs failed:", e);
@@ -24744,6 +24734,7 @@ export default function App() {
 
         let standaloneTasks = [];
         try { standaloneTasks = await fetchStandaloneTasks(); } catch {}
+        setDashboardStandaloneTasks(standaloneTasks || []);
 
         // Check last login time
         const lastLoginKey = `last_login_${user.id}`;
@@ -24885,19 +24876,19 @@ export default function App() {
           .sh-user-chip>div{display:flex;flex-direction:column;min-width:90px}.sh-user-chip strong{font-size:10px}.sh-user-chip small{font-size:8px;color:#66768d;margin-top:2px}
           .sh-user-chip>button{border:0;background:transparent;color:#66768d;cursor:pointer}
           .sh-backup-chip{border:0;background:#fee2e2;color:#b91c1c;border-radius:7px;font-size:9px;font-weight:700;padding:6px 9px}
-          .sh-dashboard{flex:1;overflow-y:auto;padding:18px;background:rgba(255,255,255,.12)}
+          .sh-dashboard{flex:1;overflow-y:auto;padding:22px;background:rgba(255,255,255,.12)}
           .sh-dash-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;position:relative}
           .sh-dash-hero:after{display:none}
-          .sh-dash-title{font-size:27px;font-weight:800;color:#0d3b80;letter-spacing:-.02em}.sh-dash-subtitle{font-size:13px;color:#66768d;margin-top:5px}
+          .sh-dash-title{font-size:30px;font-weight:800;color:#0d3b80;letter-spacing:-.02em}.sh-dash-subtitle{font-size:13px;color:#66768d;margin-top:5px}
           .sh-dash-actions{display:flex;gap:10px}.sh-action-primary,.sh-action-secondary{height:42px;border-radius:9px;padding:0 17px;font-size:12px;font-weight:750;cursor:pointer}
           .sh-action-primary{border:0;background:#0d3b80;color:#fff}.sh-action-secondary{border:1px solid #cfd9e8;background:#fff;color:#0d3b80}
           .sh-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
-          .sh-metric-card{min-height:108px;background:rgba(255,255,255,.96);border:1px solid #dce4ef;border-radius:12px;padding:16px;box-shadow:0 4px 14px rgba(13,59,128,.075);display:grid;grid-template-columns:46px auto 1fr;align-items:center;gap:12px;text-align:left;cursor:pointer}
+          .sh-metric-card{min-height:122px;background:rgba(255,255,255,.96);border:1px solid #dce4ef;border-radius:12px;padding:16px;box-shadow:0 4px 14px rgba(13,59,128,.075);display:grid;grid-template-columns:46px auto 1fr;align-items:center;gap:12px;text-align:left;cursor:pointer}
           .sh-metric-icon{width:46px;height:46px;border-radius:11px;display:grid;place-items:center}.sh-metric-icon span{width:24px;height:24px;display:block}.sh-metric-icon svg{width:24px;height:24px}
           .sh-metric-number{font-size:26px;font-weight:800;color:#17345f}.sh-metric-copy{display:flex;flex-direction:column}.sh-metric-copy strong{font-size:12px}.sh-metric-copy small{font-size:10px;color:#66768d;margin-top:3px;line-height:1.3}
           .sh-dash-columns{display:grid;grid-template-columns:1.05fr 1.1fr .95fr;gap:14px}
           .sh-panel{background:rgba(255,255,255,.96);border:1px solid #dce4ef;border-radius:12px;box-shadow:0 4px 14px rgba(13,59,128,.06);overflow:hidden;min-width:0}
-          .sh-panel-head{height:50px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6ebf2}.sh-panel-head strong{font-size:13px;color:#17345f}.sh-panel-head button{border:0;background:transparent;color:#1456b8;font-size:10px;font-weight:700;cursor:pointer}
+          .sh-panel-head{height:50px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6ebf2}.sh-panel-head strong{font-size:15px;color:#17345f}.sh-panel-head button{border:0;background:transparent;color:#1456b8;font-size:10px;font-weight:700;cursor:pointer}
           .sh-panel-body{padding:6px 10px 10px}
           .sh-list-row,.sh-job-row,.sh-schedule-row{width:100%;border:0;background:transparent;border-bottom:1px solid #edf1f6;padding:13px 8px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer}.sh-list-row:last-child,.sh-job-row:last-child,.sh-schedule-row:last-child{border-bottom:0}
           .sh-list-row:hover,.sh-job-row:hover,.sh-schedule-row:hover{background:#f9fbfd}
@@ -24944,11 +24935,11 @@ export default function App() {
             }
 
             .sh-topbar{height:74px;padding:0 12px;gap:8px;position:relative;top:auto;left:auto;right:auto;border-bottom:0;box-shadow:none}.sh-mobile-brand{display:flex;align-items:center;width:165px;flex-shrink:0}.sh-mobile-brand img{width:155px;max-height:54px;object-fit:contain;object-position:left center}
-            .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:7px}
-            .sh-dashboard{padding:15px 12px 20px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:12px}.sh-dash-title{font-size:19px}.sh-dash-subtitle{font-size:10px;line-height:1.35}.sh-dash-actions{display:none}
-            .sh-dash-hero:after{font-size:34px;left:42%;top:-4px}
-            .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:8px}.sh-metric-card{min-height:82px;padding:10px;grid-template-columns:34px auto 1fr;gap:7px}.sh-metric-icon{width:34px;height:34px}.sh-metric-number{font-size:19px}.sh-metric-copy strong{font-size:9px}.sh-metric-copy small{font-size:7.5px}
-            .sh-dash-columns{grid-template-columns:1fr;gap:9px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:42px}.sh-panel-head strong{font-size:11px}.sh-panel-head button{font-size:9px}.sh-list-row{padding:11px 6px}.sh-row-main strong{font-size:11px}.sh-row-main small{font-size:9px}
+            .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-erik-top{display:none!important}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:8px}
+            .sh-dashboard{padding:20px 14px 26px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:16px}.sh-dash-title{font-size:24px;line-height:1.15}.sh-dash-subtitle{font-size:13px;line-height:1.4;margin-top:7px}.sh-dash-actions{display:none}
+            .sh-dash-hero:after{font-size:40px;left:42%;top:-4px}
+            .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:11px}.sh-metric-card{min-height:112px;padding:14px 12px;grid-template-columns:44px auto 1fr;gap:9px}.sh-metric-icon{width:44px;height:44px}.sh-metric-icon svg{width:23px;height:23px}.sh-metric-number{font-size:27px}.sh-metric-copy strong{font-size:12px;line-height:1.15}.sh-metric-copy small{font-size:10px;line-height:1.25;margin-top:3px}
+            .sh-dash-columns{grid-template-columns:1fr;gap:12px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:54px;padding:0 14px}.sh-panel-head strong{font-size:15px}.sh-panel-head button{font-size:11px}.sh-panel-body{padding:8px 11px 12px}.sh-list-row{padding:14px 8px;gap:10px}.sh-row-main strong{font-size:14px}.sh-row-main small{font-size:11px;line-height:1.35}.sh-priority{font-size:10px;padding:4px 7px}.sh-empty{font-size:13px;padding:24px 10px}
             .sh-erik-card{display:none}.sh-app-footer{min-height:36px;padding:7px 8px;gap:5px;font-size:6.5px;flex-wrap:wrap;background:linear-gradient(90deg,#0d3b80,#104aa0);color:#fff;border-top:0}.sh-footer-version{position:static;color:#fff}
             .mobile .sh-content-stage{background:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg") center top / cover no-repeat fixed}
             .mobile .sh-content-stage>div:first-child{background-image:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg")!important;background-size:cover!important;background-position:center top!important;background-attachment:fixed!important}
@@ -25280,9 +25271,6 @@ export default function App() {
                 </button>
               );
             })()}
-            <button className="sh-erik-top" onClick={() => setShowChatbot(true)}>
-              <span>E</span><small>Erik Asks</small>
-            </button>
             <div className="sh-user-chip">
               <ProfileAvatar user={user} size={34} />
               <div><strong>{user.name}</strong><small>Team Member</small></div>
@@ -25338,7 +25326,7 @@ export default function App() {
         ) : (
           <AppErrorBoundary>
           <div className="sh-content-stage" style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-            {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} onQuickAction={runQuickAction} isDesktopView={isDesktopView} onOpenChatbot={() => setShowChatbot(true)} />}
+            {tab==="home"      && <HomeScreen tabs={homeGridTabs} onSelect={setTab} user={user} allNotifs={allNotifs} backupReminder={backupReminder} jobs={jobs} standaloneTasks={dashboardStandaloneTasks} onQuickAction={runQuickAction} isDesktopView={isDesktopView} onOpenChatbot={() => setShowChatbot(true)} />}
             {tab==="jobs"      && <JobsList jobs={jobs} setJobs={setJobs} loading={loading} onRefresh={loadJobs} user={user} isDesktopView={isDesktopView} onCheckScheduleConflict={brCheckScheduleConflict} />}
             {tab==="submit"    && <JobForm user={user} onDone={() => { setTab("jobs"); }} onRefresh={loadJobs} />}
             {tab==="calendar"  && <CalendarView jobs={jobs} user={user} />}
