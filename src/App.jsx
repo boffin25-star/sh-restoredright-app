@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 const HOLDUP_IMG = "/holdup.png";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-07-dashboard-final-v2 — Approved responsive dashboard + preserved updated App Hub second splash: desktop left sidebar; mobile swipe-scroll blue nav below header; order workflow card; blue mobile footer; no More drawer.";
+const BUILD_STAMP = "2026-08-07-mobile-footer-blue — Mobile footer changed to S&H blue with white text; desktop footer unchanged.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2505,23 +2505,6 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
 
   const taskPreview = (dueToday.length ? dueToday : assignedTasks).slice(0, 5);
 
-  // Dashboard order-management snapshot. Prefer an active job, then the most
-  // recent job, so the card remains useful without introducing mock-only data.
-  const focusJob = inProgressJobs[0] || recentJobs[0] || null;
-  const workflow = String(focusJob?.workflowStage || focusJob?.status || "Awaiting Approval").toLowerCase();
-  const workflowSteps = [
-    { key:"approval", label:"Awaiting Approval", icon:"workauths" },
-    { key:"processing", label:"Order Processing", icon:"jobs" },
-    { key:"pending", label:"Order Pending", icon:"calendar" },
-    { key:"sign", label:"Awaiting Signing", icon:"contracts" },
-    { key:"complete", label:"Completed", icon:"tasks" },
-  ];
-  let activeWorkflowIndex = 0;
-  if (workflow.includes("processing") || workflow.includes("progress")) activeWorkflowIndex = 1;
-  if (workflow.includes("pending") || workflow.includes("schedule")) activeWorkflowIndex = 2;
-  if (workflow.includes("sign") || workflow.includes("authorization")) activeWorkflowIndex = 3;
-  if (workflow.includes("complete") || workflow.includes("closed")) activeWorkflowIndex = 4;
-
   const metricCards = [
     { label:"My Tasks", value: assignedTasks.length, sub: dueToday.length ? `${dueToday.length} due today` : "Active tasks", icon:"tasks", tint:"#EFF6FF", ink:"#1D4ED8", tab:"tasks" },
     { label:"Jobs", value: inProgressJobs.length, sub:"In progress", icon:"jobs", tint:"#F0FDF4", ink:"#15803D", tab:"jobs" },
@@ -2570,42 +2553,6 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, onQ
           );
         })}
       </div>
-
-      <section className="sh-order-card">
-        <div className="sh-order-top">
-          <div className="sh-order-meta">
-            <strong>Order Management</strong>
-            <div className="sh-order-id-row">
-              <b>{focusJob?.id || "No active job"}</b>
-              {focusJob && <span>{focusJob.status || "In Progress"}</span>}
-            </div>
-            <small>
-              {focusJob
-                ? `Project: ${focusJob.address || focusJob.customerName || focusJob.jobType || "S&H project"}`
-                : "Create or open a job to see workflow progress here."}
-            </small>
-          </div>
-          <div className="sh-order-actions">
-            <button className="request" onClick={() => onSelect("jobs")}>Request Information</button>
-            <button className="approve" onClick={() => onSelect("workauths")}>Approve Change Order</button>
-            <button className="feedback" onClick={onOpenChatbot}>Leave Feedback</button>
-            <button className="complete" onClick={() => onSelect("tasks")}>Complete</button>
-          </div>
-        </div>
-        <div className="sh-order-progress" aria-label="Order workflow">
-          {workflowSteps.map((step, i) => {
-            const icon = TabIcons[step.icon];
-            const done = i < activeWorkflowIndex;
-            const current = i === activeWorkflowIndex;
-            return (
-              <div key={step.key} className={`sh-order-step ${done ? "done" : ""} ${current ? "current" : ""}`}>
-                <div className="sh-order-step-icon">{i === 4 && done ? "✓" : icon}</div>
-                <span>{step.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
 
       <div className="sh-dash-columns">
         <section className="sh-panel">
@@ -2709,30 +2656,26 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
   );
 }
 
-function SHMobileBottomNav({ tabs, activeTab, onSelect, taskBadge = 0 }) {
-  const navRef = useRef(null);
-
-  // Keep the active page visible when the user taps a tab. The strip is also
-  // directly swipe-scrollable, so there is no "More" drawer on mobile.
-  useEffect(() => {
-    const active = navRef.current?.querySelector("button.active");
-    active?.scrollIntoView?.({ behavior:"smooth", block:"nearest", inline:"center" });
-  }, [activeTab]);
-
+function SHMobileBottomNav({ activeTab, onSelect, onMore, taskBadge = 0 }) {
+  const items = [
+    { id:"home", label:"Home" },
+    { id:"tasks", label:"My Tasks" },
+    { id:"jobs", label:"Jobs" },
+    { id:"calendar", label:"Schedule" },
+  ];
   return (
-    <nav className="sh-bottom-nav" ref={navRef} aria-label="App pages">
-      {tabs.map(t => (
-        <button
-          key={t.id}
-          className={activeTab === t.id ? "active" : ""}
-          onClick={() => onSelect(t.id)}
-          aria-current={activeTab === t.id ? "page" : undefined}
-        >
-          <span>{TabIcons[t.id] || <b>{t.icon}</b>}</span>
-          <small>{t.label === "Home" ? "Dashboard" : t.label}</small>
+    <nav className="sh-bottom-nav">
+      {items.map(t => (
+        <button key={t.id} className={activeTab === t.id ? "active" : ""} onClick={() => onSelect(t.id)}>
+          <span>{TabIcons[t.id]}</span>
+          <small>{t.label}</small>
           {t.id === "tasks" && taskBadge > 0 && <i>{taskBadge > 9 ? "9+" : taskBadge}</i>}
         </button>
       ))}
+      <button onClick={onMore}>
+        <span className="sh-more-dots">•••</span>
+        <small>More</small>
+      </button>
     </nav>
   );
 }
@@ -24300,10 +24243,9 @@ export default function App() {
     if (u?.name) subscribeToPush(u.name);
   }
   const [tab, setTab]     = useState("home");
+  const [showMobileMore, setShowMobileMore] = useState(false);
   const [shellSearch, setShellSearch] = useState("");
-  // Preserve the latest updated second splash screen from this source file.
-  // Flow: Login → Policy Gate (if needed) → App Hub → Main App.
-  const [showAppHub, setShowAppHub] = useState(true);
+  const [showAppHub, setShowAppHub] = useState(false); // redesigned flow lands directly on Dashboard; App Hub remains available for later placement under More
   // Set by the Home screen's Quick Actions panel for the two actions that
   // need a real tab to do safely (mileage's GPS tracking only exists while
   // that tab is mounted; receipts just reuses its own Add form) — the tab
@@ -24812,7 +24754,7 @@ export default function App() {
           .sh-sidebar-restoration{position:absolute;left:20px;right:20px;bottom:46px;color:#0d3b80;text-align:left;transform:rotate(-4deg);filter:drop-shadow(0 2px 1px rgba(255,255,255,.7));z-index:3}
           .sh-sidebar-restoration span{display:block;font-family:"Segoe Script","Brush Script MT",cursive;font-weight:700;line-height:.88;text-shadow:0 1px 0 #fff,1px 0 0 #fff,-1px 0 0 #fff,0 -1px 0 #fff}
           .sh-restoration-small{font-size:21px}.sh-restoration-large{font-size:29px}.sh-restoration-swoosh{height:4px!important;border-radius:50%;background:#0d3b80;margin:8px 10px 0 2px;transform:skewX(-25deg)}
-          .sh-topbar{height:82px;background:#fff;border-bottom:1px solid #e4eaf2;display:flex;align-items:center;gap:20px;padding:0 24px;flex-shrink:0;position:fixed;top:0;left:0;right:0;z-index:140;box-shadow:0 2px 10px rgba(13,59,128,.05)}
+          .sh-topbar{height:82px;background:#fff;border-bottom:10px solid #0d3b80;display:flex;align-items:center;gap:20px;padding:0 24px;flex-shrink:0;position:fixed;top:0;left:0;right:0;z-index:140;box-shadow:0 2px 10px rgba(13,59,128,.05)}
           .sh-mobile-brand{display:flex;align-items:center;justify-content:flex-start;width:360px;flex-shrink:0}.sh-mobile-brand img{width:300px;max-height:62px;object-fit:contain;object-position:left center}
           .sh-search-wrap{position:relative;flex:1;max-width:540px;margin-left:auto;margin-right:auto}
           .sh-search-wrap>span{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#8a98ac;font-size:16px}
@@ -24840,10 +24782,6 @@ export default function App() {
           .sh-metric-card{min-height:76px;background:#fff;border:1px solid #dce4ef;border-radius:9px;padding:10px;box-shadow:0 2px 8px rgba(13,59,128,.055);display:grid;grid-template-columns:34px auto 1fr;align-items:center;gap:8px;text-align:left;cursor:pointer}
           .sh-metric-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center}.sh-metric-icon span{width:18px;height:18px;display:block}
           .sh-metric-number{font-size:18px;font-weight:800;color:#17345f}.sh-metric-copy{display:flex;flex-direction:column}.sh-metric-copy strong{font-size:9px}.sh-metric-copy small{font-size:7.5px;color:#66768d;margin-top:2px;line-height:1.2}
-          .sh-order-card{background:#fff;border:1px solid #dce4ef;border-radius:10px;box-shadow:0 2px 8px rgba(13,59,128,.05);padding:13px 14px 12px;margin-bottom:12px}
-          .sh-order-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.sh-order-meta{min-width:0}.sh-order-meta>strong{font-size:11px;color:#17345f}.sh-order-id-row{display:flex;align-items:center;gap:8px;margin-top:6px}.sh-order-id-row b{font-size:12px;color:#0d3b80}.sh-order-id-row span{font-size:7.5px;font-weight:700;color:#1456b8;background:#eaf2ff;border-radius:5px;padding:4px 7px}.sh-order-meta small{display:block;font-size:8px;color:#66768d;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:440px}
-          .sh-order-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.sh-order-actions button{height:32px;border:0;border-radius:5px;padding:0 12px;color:#fff;font-size:8px;font-weight:750;cursor:pointer;white-space:nowrap}.sh-order-actions .request{background:#149cab}.sh-order-actions .approve{background:#0d3b80}.sh-order-actions .feedback{background:#663bb3}.sh-order-actions .complete{background:#eda900}
-          .sh-order-progress{margin-top:12px;border:1px solid #e0e7f0;border-radius:8px;padding:13px 16px 9px;display:grid;grid-template-columns:repeat(5,1fr);position:relative}.sh-order-progress:before{content:"";position:absolute;left:9%;right:9%;top:30px;border-top:1.5px dashed #1456b8;z-index:0}.sh-order-step{display:flex;flex-direction:column;align-items:center;gap:7px;position:relative;z-index:1;text-align:center;color:#9aa7b9}.sh-order-step-icon{width:34px;height:34px;border-radius:50%;background:#fff;color:#1456b8;display:grid;place-items:center}.sh-order-step-icon svg{width:23px;height:23px}.sh-order-step span{font-size:7.5px;line-height:1.15;max-width:78px}.sh-order-step.done .sh-order-step-icon,.sh-order-step.current .sh-order-step-icon{background:#0d3b80;color:#fff}.sh-order-step.done,.sh-order-step.current{color:#0d3b80;font-weight:700}
           .sh-dash-columns{display:grid;grid-template-columns:1.05fr 1.1fr .95fr;gap:10px}
           .sh-panel{background:#fff;border:1px solid #dce4ef;border-radius:9px;box-shadow:0 2px 8px rgba(13,59,128,.045);overflow:hidden;min-width:0}
           .sh-panel-head{height:38px;padding:0 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e6ebf2}.sh-panel-head strong{font-size:10px;color:#17345f}.sh-panel-head button{border:0;background:transparent;color:#1456b8;font-size:8px;font-weight:700;cursor:pointer}
@@ -24855,9 +24793,8 @@ export default function App() {
           .sh-schedule-date{width:38px;display:flex;flex-direction:column;flex-shrink:0}.sh-schedule-date strong{font-size:8px;color:#0d3b80}.sh-schedule-date small{font-size:7px;color:#66768d;margin-top:2px}
           .sh-empty{font-size:9px;color:#8a98ac;text-align:center;padding:22px 8px}
           
-          .sh-bottom-nav{position:relative;left:auto;transform:none;bottom:auto;width:100%;height:74px;background:linear-gradient(90deg,#0d3b80,#104aa0);border:0;display:flex;align-items:stretch;z-index:110;padding:0 8px;flex-shrink:0;box-shadow:0 3px 10px rgba(13,59,128,.14);overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;scrollbar-width:none}
-          .sh-bottom-nav::-webkit-scrollbar{display:none}
-          .sh-bottom-nav button{flex:0 0 82px;min-width:82px;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative;padding:5px 7px 4px;scroll-snap-align:center;font-family:inherit}.sh-bottom-nav button>span{width:27px;height:27px;display:grid;place-items:center;color:#fff}.sh-bottom-nav button>span>b{font-size:18px;font-weight:400}.sh-bottom-nav svg{width:24px;height:24px}.sh-bottom-nav small{font-size:8px;font-weight:650;color:rgba(255,255,255,.9);white-space:nowrap;max-width:76px;overflow:hidden;text-overflow:ellipsis}.sh-bottom-nav button.active{background:rgba(255,255,255,.09)}.sh-bottom-nav button.active:after{content:"";position:absolute;left:12px;right:12px;bottom:0;height:3px;background:#fff;border-radius:3px 3px 0 0}.sh-bottom-nav button.active>span{color:#fff}.sh-bottom-nav button.active small{font-weight:800;color:#fff}.sh-bottom-nav button i{position:absolute;top:5px;right:14px;background:#ef4444;color:#fff;border:1.5px solid #0d3b80;border-radius:99px;font-size:7px;font-style:normal;min-width:14px;height:14px;display:grid;place-items:center}
+          .sh-bottom-nav{position:relative;left:auto;transform:none;bottom:auto;width:100%;height:70px;background:linear-gradient(90deg,#0d3b80,#104aa0);border:0;display:flex;z-index:110;padding:0 4px;flex-shrink:0;box-shadow:0 3px 10px rgba(13,59,128,.14)}
+          .sh-bottom-nav button{flex:1;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative;padding:3px 0}.sh-bottom-nav button>span{width:34px;height:34px;border:1.4px solid rgba(255,255,255,.9);border-radius:50%;display:grid;place-items:center;color:#fff}.sh-bottom-nav svg{width:19px;height:19px}.sh-bottom-nav small{font-size:8px;font-weight:650;color:#fff}.sh-bottom-nav button.active>span{background:#fff;color:#0d3b80;box-shadow:0 2px 8px rgba(0,0,0,.15)}.sh-bottom-nav button.active small{font-weight:800}.sh-bottom-nav button i{position:absolute;top:2px;right:20%;background:#ef4444;color:#fff;border-radius:99px;font-size:7px;font-style:normal;min-width:13px;height:13px;display:grid;place-items:center}.sh-more-dots{font-size:17px;line-height:12px;font-weight:800}
           .sh-more-backdrop{position:fixed;inset:0;background:rgba(8,43,96,.34);z-index:180;display:flex;align-items:flex-end;justify-content:center}
           .sh-more-sheet{width:min(100%,430px);max-height:76vh;background:#fff;border-radius:18px 18px 0 0;padding:8px 14px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 30px rgba(13,59,128,.18);overflow-y:auto}
           .sh-more-handle{width:38px;height:4px;border-radius:99px;background:#d6dee9;margin:3px auto 9px}.sh-more-title{display:flex;align-items:center;justify-content:space-between;padding:2px 3px 10px}.sh-more-title strong{font-size:16px;color:#0d3b80}.sh-more-title button{border:0;background:#f1f5f9;width:28px;height:28px;border-radius:50%;font-size:17px}
@@ -24865,14 +24802,27 @@ export default function App() {
 
           .sh-app-footer{min-height:38px;background:rgba(255,255,255,.96);border-top:3px solid #0d3b80;display:flex;align-items:center;justify-content:center;gap:16px;padding:7px 18px;color:#0d3b80;font-size:9px;flex-shrink:0;position:relative}.sh-app-footer b{font-size:8px}.sh-footer-version{position:absolute;right:18px}
           @media(max-width:767px){
+            .mobile footer,
+            .mobile .app-footer,
+            .mobile [class*="footer"],
+            .mobile [style*="border-top"]{
+              background:#0D3B80 !important;
+              color:#FFFFFF !important;
+              border-top-color:#0D3B80 !important;
+            }
+            .mobile footer *,
+            .mobile .app-footer *,
+            .mobile [class*="footer"] *{
+              color:#FFFFFF !important;
+            }
+
             .sh-topbar{height:74px;padding:0 12px;gap:8px;position:relative;top:auto;left:auto;right:auto;border-bottom:0;box-shadow:none}.sh-mobile-brand{display:flex;align-items:center;width:165px;flex-shrink:0}.sh-mobile-brand img{width:155px;max-height:54px;object-fit:contain;object-position:left center}
             .mobile .sh-main-workspace{padding-bottom:0}.sh-search-wrap{display:none}.sh-erik-top small,.sh-user-chip>div,.sh-user-chip>button,.sh-backup-chip{display:none}.sh-user-chip{border-left:0;padding-left:0}.sh-top-actions{gap:7px}
             .sh-dashboard{padding:12px 10px 18px;background:rgba(255,255,255,.10)}.sh-dash-hero{align-items:flex-start;margin-bottom:10px}.sh-dash-title{font-size:16px}.sh-dash-subtitle{font-size:8px}.sh-dash-actions{display:none}
             .sh-dash-hero:after{font-size:34px;left:42%;top:-4px}
             .sh-metric-grid{grid-template-columns:repeat(2,1fr);gap:7px}.sh-metric-card{min-height:66px;padding:8px;grid-template-columns:30px auto 1fr;gap:6px}.sh-metric-icon{width:30px;height:30px}.sh-metric-number{font-size:16px}.sh-metric-copy strong{font-size:8px}.sh-metric-copy small{font-size:6.8px}
-            .sh-order-card{padding:11px 10px 10px;margin-bottom:8px}.sh-order-top{display:block}.sh-order-meta>strong{font-size:10px}.sh-order-id-row b{font-size:11px}.sh-order-meta small{font-size:7.5px;max-width:100%}.sh-order-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px}.sh-order-actions button{height:34px;padding:0 6px;font-size:7.5px;white-space:normal;line-height:1.1}.sh-order-progress{padding:11px 5px 8px;margin-top:10px}.sh-order-progress:before{left:10%;right:10%;top:26px}.sh-order-step{gap:5px}.sh-order-step-icon{width:29px;height:29px}.sh-order-step-icon svg{width:19px;height:19px}.sh-order-step span{font-size:6.3px;max-width:61px}
-            .sh-dash-columns{grid-template-columns:1fr;gap:8px}.sh-panel:nth-child(3){display:none}.sh-panel-head{height:34px}.sh-list-row,.sh-job-row{padding:8px 5px}.sh-row-main strong{font-size:8.5px}.sh-row-main small{font-size:7px}
-            .sh-erik-card{display:none}.mobile .sh-app-footer{min-height:58px;padding:10px 12px;gap:6px;font-size:7px;flex-wrap:wrap;background:linear-gradient(90deg,#0d3b80,#104aa0);border-top:0;color:#fff}.mobile .sh-app-footer b{color:#fff}.mobile .sh-footer-version{position:static;width:100%;text-align:center;color:#fff}
+            .sh-dash-columns{grid-template-columns:1fr;gap:8px}.sh-panel:nth-child(2),.sh-panel:nth-child(3){display:none}.sh-panel-head{height:34px}.sh-list-row{padding:8px 5px}.sh-row-main strong{font-size:8.5px}.sh-row-main small{font-size:7px}
+            .sh-erik-card{display:none}.sh-app-footer{min-height:32px;padding:6px 8px;gap:5px;font-size:6.5px;flex-wrap:wrap}.sh-footer-version{position:static}
           }
         `}</style>
         <OfflineBanner />
@@ -25213,9 +25163,9 @@ export default function App() {
         </div>
         {!isDesktopView && (
           <SHMobileBottomNav
-            tabs={tabs}
             activeTab={tab}
             onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }}
+            onMore={() => setShowMobileMore(true)}
             taskBadge={(allNotifs.newTasks?.length || 0) + (allNotifs.followUps?.length || 0)}
           />
         )}
@@ -25291,6 +25241,7 @@ export default function App() {
           <span>RestoredRight System™</span>
           <span className="sh-footer-version">v2.5.1</span>
         </footer>
+        {showMobileMore && <SHMoreMenu tabs={tabs} activeTab={tab} onSelect={setTab} onClose={() => setShowMobileMore(false)} />}
       </div>
     </div>
     </UserCtx.Provider>
