@@ -9,9 +9,10 @@ const SUPABASE_URL = "https://bhofebvgpsozpubefzvx.supabase.co";
 // of page. Update this string whenever you hand over a new zip.
 
 const HOLDUP_IMG = "/holdup.png";
+const DESKTOP_BOX_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgNTIwIj4KPHJlY3QgeD0iMTgiIHk9IjE4IiB3aWR0aD0iNDg0IiBoZWlnaHQ9IjQ4NCIgcng9IjgiIGZpbGw9IiMwRDNCODAiLz4KPHJlY3QgeD0iMzYiIHk9IjM2IiB3aWR0aD0iNDQ4IiBoZWlnaHQ9IjQ0OCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIvPgo8cmVjdCB4PSI1MSIgeT0iNTEiIHdpZHRoPSI0MTgiIGhlaWdodD0iNDE4IiByeD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjMiLz4KPHRleHQgeD0iMjYwIiB5PSIyNTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNTAiIGZvbnQtd2VpZ2h0PSI3MDAiPlMmYW1wO0g8L3RleHQ+CjxsaW5lIHgxPSI5MyIgeTE9IjI4OCIgeDI9IjQyNyIgeTI9IjI4OCIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjUiLz4KPHRleHQgeD0iMjYwIiB5PSIzNjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSI1OCIgZm9udC13ZWlnaHQ9IjcwMCIgbGV0dGVyLXNwYWNpbmc9IjUiPlNFUlZJQ0VTPC90ZXh0Pgo8bGluZSB4MT0iOTUiIHkxPSIzOTEiIHgyPSI0MjUiIHkyPSIzOTEiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cjx0ZXh0IHg9IjI2MCIgeT0iNDM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRkZGRkZGIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjciIGZvbnQtd2VpZ2h0PSI3MDAiIGxldHRlci1zcGFjaW5nPSI3Ij5TUE9LQU5FIExMQzwvdGV4dD4KPC9zdmc+";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-08-dashboard-v11-splash-profile — v10 approved login preserved; second App Hub splash now uses the same inverted blueprint-house background as login, and the signed-in user avatar/profile control is restored and kept visible in the top-right header on both desktop and mobile.";
+const BUILD_STAMP = "2026-08-08-dashboard-v12-desktop-inverted — DESKTOP ONLY visual redesign: white left navigation, official S&H box logo treatment, same inverted blueprint-house branding as login behind the desktop workspace, white cards, sidebar Ask Erik control, Restoration Done Right retained at sidebar bottom; mobile view remains unchanged from v11.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2862,9 +2863,12 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, sta
   );
 }
 
-function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
+function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder, onAskErik }) {
   return (
     <aside className="sh-sidebar">
+      <div className="sh-sidebar-logo-wrap">
+        <img className="sh-sidebar-logo" src={DESKTOP_BOX_LOGO} alt="S&H Services Spokane LLC" />
+      </div>
       <nav className="sh-sidebar-nav">
         {tabs.map(t => {
           const active = activeTab === t.id;
@@ -2879,10 +2883,16 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder }) {
           );
         })}
       </nav>
-      <div className="sh-sidebar-restoration" aria-hidden="true">
-        <span className="sh-restoration-small">Restoration</span>
-        <span className="sh-restoration-large">Done Right!</span>
-        <span className="sh-restoration-swoosh" />
+      <div className="sh-sidebar-bottom">
+        <button className="sh-sidebar-erik" onClick={onAskErik} type="button" aria-label="Ask Erik">
+          <img src={`data:image/png;base64,${CHATBOT_ICON_B64}`} alt="" />
+          <span><strong>Ask Erik?</strong><small>Virtual Assistant</small><small>Available 24/7</small></span>
+        </button>
+        <div className="sh-sidebar-restoration" aria-hidden="true">
+          <span className="sh-restoration-small">Restoration</span>
+          <span className="sh-restoration-large">Done Right!</span>
+          <span className="sh-restoration-swoosh" />
+        </div>
       </div>
     </aside>
   );
@@ -25227,14 +25237,18 @@ export default function App() {
     <PolicyAcknowledgmentGate user={user}>
     <UserCtx.Provider value={user}>
     <div className={isDesktopView ? "sh-app-shell desktop" : "sh-app-shell mobile"}>
-      {isDesktopView && <SHDesktopSidebar tabs={tabs} activeTab={tab} onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }} backupReminder={backupReminder} />}
+      {isDesktopView && <SHDesktopSidebar tabs={tabs} activeTab={tab} onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }} backupReminder={backupReminder} onAskErik={() => setShowChatbot(true)} />}
       <div className="sh-main-workspace">
         <style>{`
           @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}
           @keyframes spin{to{transform:rotate(360deg)}}
           @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
           .sh-app-shell{font-family:'Inter',system-ui,sans-serif;min-height:100vh;background:#f6f8fc;color:#17345f;display:flex;width:100%}
-          .sh-app-shell.desktop{background:#eef3f9}
+          .sh-app-shell.desktop{
+            background:
+              linear-gradient(180deg,rgba(4,34,82,.72),rgba(4,34,82,.84)),
+              url("/blueprint-house-login-inverted.jpg") center center / cover no-repeat fixed;
+          }
           .sh-main-workspace{
             min-width:0;
             min-height:100vh;
@@ -25247,19 +25261,87 @@ export default function App() {
             position:relative;
             overflow:hidden;
           }
-          .desktop .sh-main-workspace{flex:1;margin:0;border-right:0;padding-top:82px;max-width:none}
+          .desktop .sh-main-workspace{
+            flex:1;margin:0;border-right:0;padding-top:82px;max-width:none;
+            background:
+              linear-gradient(180deg,rgba(5,38,89,.58),rgba(5,38,89,.72)),
+              url("/blueprint-house-login-inverted.jpg") center center / cover no-repeat fixed;
+          }
           .mobile .sh-main-workspace{width:100%;max-width:430px;margin:0 auto;padding-bottom:0;background:linear-gradient(rgba(255,255,255,.88),rgba(255,255,255,.88)),url("/blueprint-house.jpg") center top / cover no-repeat fixed}
-          .sh-sidebar{width:218px;background:linear-gradient(180deg,#0b3b84 0%,#0d4d9f 58%,#7aa4d8 82%,#ffffff 100%);color:#fff;min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;box-shadow:3px 0 16px rgba(8,43,96,.10);padding-top:90px;position:relative;overflow:hidden}
-                    .sh-sidebar-nav{padding:18px 0 150px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;position:relative;z-index:2}
-          .sh-side-item{position:relative;border:0;background:transparent;color:rgba(255,255,255,.95);border-radius:10px 0 0 10px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:11px;font-weight:650;text-align:left;cursor:pointer;overflow:hidden}
-          .sh-side-item:hover{background:rgba(255,255,255,.08);color:#fff}
-          .sh-side-item.active{background:#fff;color:#0d3b80;box-shadow:none;border-radius:999px 0 0 999px;margin-right:-1px;padding-right:20px;isolation:isolate}.sh-side-item.active:after{content:"";position:absolute;inset:0 0 0 45%;background:url("/blueprint-house.jpg") center/cover no-repeat;opacity:.09;z-index:-1;pointer-events:none}
-          .sh-side-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-          .sh-side-icon svg{width:18px;height:18px}
-          .sh-side-item i{margin-left:auto;background:#dc2626;color:#fff;border-radius:99px;font-size:8px;font-style:normal;min-width:15px;height:15px;display:grid;place-items:center}
-          .sh-sidebar-restoration{position:absolute;left:20px;right:20px;bottom:46px;color:#0d3b80;text-align:left;transform:rotate(-4deg);filter:drop-shadow(0 2px 1px rgba(255,255,255,.7));z-index:3}
-          .sh-sidebar-restoration span{display:block;font-family:"Segoe Script","Brush Script MT",cursive;font-weight:700;line-height:.88;text-shadow:0 1px 0 #fff,1px 0 0 #fff,-1px 0 0 #fff,0 -1px 0 #fff}
-          .sh-restoration-small{font-size:21px}.sh-restoration-large{font-size:29px}.sh-restoration-swoosh{height:4px!important;border-radius:50%;background:#0d3b80;margin:8px 10px 0 2px;transform:skewX(-25deg)}
+          .sh-sidebar{
+            width:238px;background:#fff;color:#0D3B80;min-height:100vh;
+            display:flex;flex-direction:column;flex-shrink:0;
+            box-shadow:4px 0 20px rgba(3,30,74,.16);
+            padding-top:0;position:relative;overflow:hidden;z-index:150;
+            border-right:1px solid #D7E2F0;
+          }
+          .sh-sidebar-logo-wrap{
+            height:190px;display:flex;align-items:center;justify-content:center;
+            padding:22px 28px 12px;box-sizing:border-box;border-bottom:1px solid #EEF2F7;
+          }
+          .sh-sidebar-logo{
+            width:148px;height:148px;object-fit:contain;
+            filter:drop-shadow(0 4px 8px rgba(13,59,128,.12));
+          }
+          .sh-sidebar-nav{
+            padding:18px 16px 245px 16px;overflow-y:auto;
+            display:flex;flex-direction:column;gap:5px;position:relative;z-index:2;
+          }
+          .sh-side-item{
+            position:relative;border:0;background:transparent;color:#17345F;
+            border-radius:10px;padding:11px 14px;display:flex;align-items:center;
+            gap:11px;font-size:12px;font-weight:650;text-align:left;cursor:pointer;
+            overflow:hidden;min-height:43px;
+          }
+          .sh-side-item:hover{background:#F2F7FE;color:#0D3B80}
+          .sh-side-item.active{
+            background:#E8F1FD;color:#0D3B80;box-shadow:none;border-radius:9px;
+            margin-right:0;padding-right:14px;font-weight:800;
+          }
+          .sh-side-item.active:before{
+            content:"";position:absolute;left:0;top:5px;bottom:5px;width:4px;
+            background:#1456B8;border-radius:0 4px 4px 0;
+          }
+          .sh-side-item.active:after{display:none}
+          .sh-side-icon{
+            width:20px;height:20px;display:flex;align-items:center;
+            justify-content:center;flex-shrink:0;color:#0D3B80;
+          }
+          .sh-side-icon svg{width:19px;height:19px}
+          .sh-side-item i{
+            margin-left:auto;background:#dc2626;color:#fff;border-radius:99px;
+            font-size:8px;font-style:normal;min-width:15px;height:15px;display:grid;place-items:center;
+          }
+          .sh-sidebar-bottom{
+            position:absolute;left:0;right:0;bottom:0;background:#fff;
+            border-top:1px solid #E5ECF5;padding:14px 18px 20px;z-index:5;
+          }
+          .sh-sidebar-erik{
+            width:100%;border:0;background:transparent;display:flex;align-items:center;
+            gap:11px;padding:5px 3px 12px;text-align:left;cursor:pointer;color:#0D3B80;
+          }
+          .sh-sidebar-erik:hover{background:#F5F9FF;border-radius:10px}
+          .sh-sidebar-erik img{
+            width:52px;height:52px;object-fit:contain;flex-shrink:0;
+            filter:drop-shadow(0 3px 7px rgba(13,59,128,.15));
+          }
+          .sh-sidebar-erik span{display:flex;flex-direction:column;min-width:0}
+          .sh-sidebar-erik strong{font-size:14px;line-height:1.1}
+          .sh-sidebar-erik small{font-size:9px;color:#66768D;margin-top:3px;line-height:1.1}
+          .sh-sidebar-restoration{
+            position:static;color:#0D3B80;text-align:left;transform:rotate(-4deg);
+            filter:none;margin:7px 4px 1px;z-index:3;
+          }
+          .sh-sidebar-restoration span{
+            display:block;font-family:"Segoe Script","Brush Script MT",cursive;
+            font-weight:700;line-height:.88;text-shadow:none;
+          }
+          .sh-restoration-small{font-size:18px}
+          .sh-restoration-large{font-size:25px}
+          .sh-restoration-swoosh{
+            height:3px!important;border-radius:50%;background:#0D3B80;
+            margin:7px 10px 0 2px;transform:skewX(-25deg)
+          }
           .sh-topbar{height:82px;background:#fff;border-bottom:10px solid #0d3b80;display:flex;align-items:center;gap:20px;padding:0 24px;flex-shrink:0;position:fixed;top:0;left:0;right:0;z-index:140;box-shadow:0 2px 10px rgba(13,59,128,.05)}
           .sh-mobile-brand{display:flex;align-items:center;justify-content:flex-start;width:360px;flex-shrink:0}.sh-mobile-brand img{width:300px;max-height:62px;object-fit:contain;object-position:left center}
           .sh-search-wrap{position:relative;flex:1;max-width:540px;margin-left:auto;margin-right:auto}
@@ -25396,6 +25478,41 @@ export default function App() {
           .sh-content-stage *::-webkit-scrollbar-thumb{background:#c5d4e7;border-radius:999px}
           .sh-content-stage::-webkit-scrollbar-track,
           .sh-content-stage *::-webkit-scrollbar-track{background:transparent}
+
+
+          .desktop .sh-topbar{
+            left:238px;height:74px;border-bottom:1px solid #DCE4EF;
+            padding:0 26px;background:rgba(255,255,255,.98);
+            box-shadow:0 3px 12px rgba(3,30,74,.10);
+          }
+          .desktop .sh-main-workspace{padding-top:74px}
+          .desktop .sh-mobile-brand{width:235px}
+          .desktop .sh-desktop-top-brand{
+            font-size:18px;font-weight:850;color:#0D3B80;letter-spacing:-.02em;
+            white-space:nowrap;
+          }
+          .desktop .sh-desktop-top-brand span{font-weight:700;color:#17345F;margin-left:4px}
+          .desktop .sh-dashboard{
+            background:transparent;padding:28px 30px 30px;
+          }
+          .desktop .sh-dash-title{color:#FFFFFF;font-size:32px;text-shadow:0 2px 6px rgba(0,0,0,.16)}
+          .desktop .sh-dash-subtitle{color:rgba(255,255,255,.88);font-size:14px}
+          .desktop .sh-metric-card,
+          .desktop .sh-panel{
+            background:rgba(255,255,255,.97);
+            border-color:rgba(255,255,255,.78);
+            box-shadow:0 8px 24px rgba(2,24,61,.16);
+          }
+          .desktop .sh-content-stage{
+            background:transparent!important;
+          }
+          .desktop .sh-content-stage>div:not(.sh-dashboard){
+            background:transparent;
+          }
+          .desktop .sh-app-footer{
+            background:linear-gradient(90deg,#0D3B80,#064D9C)!important;
+            color:#FFFFFF!important;border-top:1px solid rgba(255,255,255,.16)!important;
+          }
 
           @media(max-width:767px){
             .mobile .sh-quick-actions-panel{display:block;margin-top:8px}
@@ -25720,7 +25837,10 @@ export default function App() {
         {/* S&H redesigned application shell */}
         <div className="sh-topbar">
           <div className="sh-mobile-brand">
-            <img src="/sh-services-logo.png" alt="S&H Services" />
+            {isDesktopView
+              ? <div className="sh-desktop-top-brand">S&amp;H <span>RestoredRight</span></div>
+              : <img src="/sh-services-logo.png" alt="S&H Services" />
+            }
           </div>
 
           <div className="sh-search-wrap">
@@ -25775,7 +25895,7 @@ export default function App() {
         {showChangePassword && <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />}
 
         {/* Floating chatbot button — no circle, just the Ask Erik character, enlarged */}
-        {!showChatbot && (
+        {!showChatbot && !isDesktopView && (
           <button
             onClick={() => setShowChatbot(true)}
             style={{
