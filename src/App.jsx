@@ -13,7 +13,7 @@ const SIDEBAR_LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAArMAAAK8CAYA
 const DESKTOP_BOX_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgNTIwIj4KPHJlY3QgeD0iMTgiIHk9IjE4IiB3aWR0aD0iNDg0IiBoZWlnaHQ9IjQ4NCIgcng9IjgiIGZpbGw9IiMwRDNCODAiLz4KPHJlY3QgeD0iMzYiIHk9IjM2IiB3aWR0aD0iNDQ4IiBoZWlnaHQ9IjQ0OCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIvPgo8cmVjdCB4PSI1MSIgeT0iNTEiIHdpZHRoPSI0MTgiIGhlaWdodD0iNDE4IiByeD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjMiLz4KPHRleHQgeD0iMjYwIiB5PSIyNTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNTAiIGZvbnQtd2VpZ2h0PSI3MDAiPlMmYW1wO0g8L3RleHQ+CjxsaW5lIHgxPSI5MyIgeTE9IjI4OCIgeDI9IjQyNyIgeTI9IjI4OCIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjUiLz4KPHRleHQgeD0iMjYwIiB5PSIzNjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSI1OCIgZm9udC13ZWlnaHQ9IjcwMCIgbGV0dGVyLXNwYWNpbmc9IjUiPlNFUlZJQ0VTPC90ZXh0Pgo8bGluZSB4MT0iOTUiIHkxPSIzOTEiIHgyPSI0MjUiIHkyPSIzOTEiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cjx0ZXh0IHg9IjI2MCIgeT0iNDM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRkZGRkZGIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjciIGZvbnQtd2VpZ2h0PSI3MDAiIGxldHRlci1zcGFjaW5nPSI3Ij5TUE9LQU5FIExMQzwvdGV4dD4KPC9zdmc+";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-09-sidebar-logo-attached — Desktop left sidebar uses the newly supplied tall S&H Services Spokane LLC logo embedded directly in App.jsx.";
+const BUILD_STAMP = "2026-08-09-desktop-header-sidebar-v2 — desktop header now spans full width, new S&H logo lives in the header over the sidebar column, and the left navigation scrolls independently with hidden scrollbar + soft fade scrolling.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2867,9 +2867,6 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, sta
 function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder, onAskErik }) {
   return (
     <aside className="sh-sidebar">
-      <div className="sh-sidebar-logo-wrap">
-        <img className="sh-sidebar-logo" src={SIDEBAR_LOGO} alt="S&H Services" />
-      </div>
       <nav className="sh-sidebar-nav">
         {tabs.map(t => {
           const active = activeTab === t.id;
@@ -25461,22 +25458,21 @@ export default function App() {
           .sh-sidebar{
             width:238px;background:#fff;color:#0D3B80;min-height:100vh;
             display:flex;flex-direction:column;flex-shrink:0;
-            box-shadow:4px 0 20px rgba(3,30,74,.16);
-            padding-top:0;position:relative;overflow:hidden;z-index:150;
+            box-shadow:4px 0 20px rgba(3,30,74,.14);
+            padding-top:0;position:relative;overflow:hidden;z-index:135;
             border-right:1px solid #D7E2F0;
           }
-          .sh-sidebar-logo-wrap{
-            height:190px;display:flex;align-items:center;justify-content:center;
-            padding:22px 28px 12px;box-sizing:border-box;border-bottom:1px solid #EEF2F7;
-          }
-          .sh-sidebar-logo{
-            width:148px;height:148px;object-fit:contain;
-            filter:drop-shadow(0 4px 8px rgba(13,59,128,.12));
-          }
           .sh-sidebar-nav{
-            padding:18px 16px 245px 16px;overflow-y:auto;
+            padding:18px 16px 245px 16px;
+            overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth;
             display:flex;flex-direction:column;gap:5px;position:relative;z-index:2;
+            scrollbar-width:none;-ms-overflow-style:none;
+            -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 calc(100% - 22px),transparent 100%);
+                    mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 calc(100% - 22px),transparent 100%);
           }
+          .sh-sidebar-nav::-webkit-scrollbar{display:none;width:0;height:0}
+          .sh-sidebar-nav .sh-side-item{scroll-snap-align:start}
+
           .sh-side-item{
             position:relative;border:0;background:transparent;color:#17345F;
             border-radius:10px;padding:11px 14px;display:flex;align-items:center;
@@ -25532,7 +25528,7 @@ export default function App() {
             height:3px!important;border-radius:50%;background:#0D3B80;
             margin:7px 10px 0 2px;transform:skewX(-25deg)
           }
-          .sh-topbar{height:82px;background:#fff;border-bottom:10px solid #0d3b80;display:flex;align-items:center;gap:20px;padding:0 24px;flex-shrink:0;position:fixed;top:0;left:0;right:0;z-index:140;box-shadow:0 2px 10px rgba(13,59,128,.05)}
+          .sh-topbar{height:82px;background:#fff;border-bottom:10px solid #0d3b80;display:flex;align-items:center;gap:20px;padding:0 24px;flex-shrink:0;position:fixed;top:0;left:0;right:0;z-index:160;box-shadow:0 2px 10px rgba(13,59,128,.05)}
           .sh-mobile-brand{display:flex;align-items:center;justify-content:flex-start;width:360px;flex-shrink:0}.sh-mobile-brand img{width:300px;max-height:62px;object-fit:contain;object-position:left center}
           .sh-search-wrap{position:relative;flex:1;max-width:540px;margin-left:auto;margin-right:auto}
           .sh-search-wrap>span{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#8a98ac;font-size:16px}
@@ -25679,17 +25675,36 @@ export default function App() {
 
 
           .desktop .sh-topbar{
-            left:238px;height:74px;border-bottom:1px solid #DCE4EF;
-            padding:0 26px;background:rgba(255,255,255,.98);
-            box-shadow:0 3px 12px rgba(3,30,74,.10);
+            left:0;right:0;height:78px;border-bottom:1px solid #DCE4EF;
+            padding:0 26px 0 0;background:rgba(255,255,255,.985);
+            box-shadow:0 3px 14px rgba(3,30,74,.10);
           }
-          .desktop .sh-main-workspace{padding-top:74px}
-          .desktop .sh-mobile-brand{width:235px}
-          .desktop .sh-desktop-top-brand{
-            font-size:18px;font-weight:850;color:#0D3B80;letter-spacing:-.02em;
-            white-space:nowrap;
+          .desktop .sh-mobile-brand{
+            width:238px;height:78px;flex:0 0 238px;
+            display:flex;align-items:center;justify-content:center;
+            border-right:1px solid #D7E2F0;
+            background:#fff;
+            box-shadow:4px 0 20px rgba(3,30,74,.05);
           }
-          .desktop .sh-desktop-top-brand span{font-weight:700;color:#17345F;margin-left:4px}
+          .desktop .sh-header-logo{
+            width:112px;height:66px;object-fit:contain;display:block;
+            filter:drop-shadow(0 3px 6px rgba(13,59,128,.10));
+          }
+          .desktop .sh-search-wrap{margin-left:26px}
+          .desktop .sh-sidebar{
+            position:fixed;left:0;top:78px;bottom:0;
+            height:auto;min-height:0;z-index:145;
+            border-top:0;
+          }
+          .desktop .sh-sidebar-nav{
+            flex:1;min-height:0;
+            padding-top:22px;
+            scroll-snap-type:y proximity;
+          }
+          .desktop .sh-main-workspace{
+            padding-top:78px;margin-left:238px;
+            width:calc(100% - 238px);
+          }
           .desktop .sh-dashboard{
             background:transparent;padding:28px 30px 30px;
           }
@@ -26036,7 +26051,7 @@ export default function App() {
         <div className="sh-topbar">
           <div className="sh-mobile-brand">
             {isDesktopView
-              ? <div className="sh-desktop-top-brand">S&amp;H <span>RestoredRight</span></div>
+              ? <img className="sh-header-logo" src={SIDEBAR_LOGO} alt="S&H Services Spokane LLC" />
               : <img src="/sh-services-logo.png" alt="S&H Services" />
             }
           </div>
