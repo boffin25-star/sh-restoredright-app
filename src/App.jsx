@@ -12,7 +12,7 @@ const HOLDUP_IMG = "/holdup.png";
 const DESKTOP_BOX_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgNTIwIj4KPHJlY3QgeD0iMTgiIHk9IjE4IiB3aWR0aD0iNDg0IiBoZWlnaHQ9IjQ4NCIgcng9IjgiIGZpbGw9IiMwRDNCODAiLz4KPHJlY3QgeD0iMzYiIHk9IjM2IiB3aWR0aD0iNDQ4IiBoZWlnaHQ9IjQ0OCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIvPgo8cmVjdCB4PSI1MSIgeT0iNTEiIHdpZHRoPSI0MTgiIGhlaWdodD0iNDE4IiByeD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjMiLz4KPHRleHQgeD0iMjYwIiB5PSIyNTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNTAiIGZvbnQtd2VpZ2h0PSI3MDAiPlMmYW1wO0g8L3RleHQ+CjxsaW5lIHgxPSI5MyIgeTE9IjI4OCIgeDI9IjQyNyIgeTI9IjI4OCIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjUiLz4KPHRleHQgeD0iMjYwIiB5PSIzNjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSI1OCIgZm9udC13ZWlnaHQ9IjcwMCIgbGV0dGVyLXNwYWNpbmc9IjUiPlNFUlZJQ0VTPC90ZXh0Pgo8bGluZSB4MT0iOTUiIHkxPSIzOTEiIHgyPSI0MjUiIHkyPSIzOTEiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cjx0ZXh0IHg9IjI2MCIgeT0iNDM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRkZGRkZGIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjciIGZvbnQtd2VpZ2h0PSI3MDAiIGxldHRlci1zcGFjaW5nPSI3Ij5TUE9LQU5FIExMQzwvdGV4dD4KPC9zdmc+";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-08-dashboard-v15-otp-reload-fix — v14 preserved; Send Code is now functional using the employee saved email and Supabase email OTP, and app reloads/crash recovery no longer send an already-entered session back to the second App Hub splash.";
+const BUILD_STAMP = "2026-08-09a — Fixed two live crashes from an incomplete prior edit (displayDocs/showSketch undefined-variable bugs, one of them crashing the Measurements section on every job); added estimate Sent-tracking; added an in-app update-available banner so active users get told when a new build ships instead of silently running a stale one. v15 OTP/reload-fix and branding preserved unchanged.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -24914,6 +24914,43 @@ export default function App() {
     verifySession();
     return () => { cancelled = true; };
   }, []); // only on mount
+
+  // Lets anyone already using the app know a new version has shipped,
+  // instead of them silently running whatever build was loaded when they
+  // opened the tab — which is exactly what made "did the fix actually go
+  // out" hard to tell apart from "browser needs a hard refresh" earlier.
+  // Doesn't auto-reload (that could yank someone off a half-filled form) —
+  // just surfaces a small banner they can act on when it's convenient.
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    let stopped = false;
+
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (!reg || stopped) return;
+
+      function watch(worker) {
+        if (!worker) return;
+        worker.addEventListener("statechange", () => {
+          // "installed" + an existing controller means this is an update to
+          // an already-running app, not the very first install.
+          if (worker.state === "installed" && navigator.serviceWorker.controller) {
+            setUpdateAvailable(true);
+          }
+        });
+      }
+      watch(reg.installing);
+      reg.addEventListener("updatefound", () => watch(reg.installing));
+
+      // A tab can stay open for hours in the field — check periodically so
+      // it doesn't take a full close-and-reopen to notice a new build.
+      const poll = setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+      return () => clearInterval(poll);
+    }).catch(() => {});
+
+    return () => { stopped = true; };
+  }, []);
+
   function setUser(u, remember = true) {
     setUserRaw(u);
     try {
@@ -25426,6 +25463,22 @@ export default function App() {
     <PolicyAcknowledgmentGate user={user}>
     <UserCtx.Provider value={user}>
     <div className={isDesktopView ? "sh-app-shell desktop" : "sh-app-shell mobile"}>
+      {updateAvailable && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 999,
+          background: BRAND.navy, color: BRAND.white, padding: "9px 14px",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+          fontSize: 12.5, fontWeight: 600, boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+        }}>
+          <span>🔄 A new version of the app is available.</span>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ background: BRAND.gold, color: BRAND.navy, border: "none", borderRadius: 7, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+          >
+            Refresh Now
+          </button>
+        </div>
+      )}
       {isDesktopView && <SHDesktopSidebar tabs={tabs} activeTab={tab} onSelect={(id) => { setTab(id); if (id === "backup") setBackupReminder(false); }} backupReminder={backupReminder} onAskErik={() => setShowChatbot(true)} />}
       <div className="sh-main-workspace">
         <style>{`
