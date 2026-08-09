@@ -9944,7 +9944,7 @@ function JobContracts({ jobId, job, user }) {
     try {
       // Fetch metadata only (no url) filtered to this job
       const rows = await sbFetch(
-        `documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id`
+        `documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id,sent_at,sent_via,viewed_at`
       );
       const jobDocs = (rows || []).filter(d =>
         d.linked_job_id === jobId || d.description?.includes(jobId) || d.name?.includes(jobId)
@@ -10010,6 +10010,11 @@ function JobContracts({ jobId, job, user }) {
             <div style={{ fontSize: 10, color: BRAND.muted, marginTop: 3 }}>
               {doc.uploaded_by} · {fmtDate(doc.uploaded_at)}
             </div>
+            {doc.sent_at && (
+              <div style={{ fontSize: 10.5, color: BRAND.muted, marginTop: 3 }}>
+                📤 Sent {fmtTs(doc.sent_at)}{doc.sent_via ? ` via ${doc.sent_via.replace("sms", "text")}` : ""}
+              </div>
+            )}
             {getEstimateViewMeta(doc) && (
               <div style={{ fontSize: 10.5, color: "#1D4ED8", fontWeight: 700, marginTop: 5 }}>
                 👁 Client viewed {fmtTs(getEstimateViewMeta(doc).lastViewedAt)}
@@ -15324,7 +15329,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
   async function load() {
     setLoading(true);
     try {
-      const all = await sbFetch(`documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id`);
+      const all = await sbFetch(`documents?order=uploaded_at.desc&select=id,name,description,file_type,uploaded_by,uploaded_at,doc_type,linked_job_id,sent_at,sent_via,viewed_at`);
       setDocs((all || []).filter(d => docType === "estimate" ? (d.doc_type === "estimate" || isEstimateAcceptanceDoc(d)) : d.doc_type === docType));
     } catch {}
     setLoading(false);
@@ -15354,6 +15359,20 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
       win.document.close();
     } catch { setToast({ msg: "Print failed", ok: false }); setTimeout(() => setToast(null), 3000); }
     setActionDocId(null);
+  }
+
+  // Stamps sent_at/sent_via on the document itself — mirrors the same
+  // pattern work_authorizations already uses. Only called for estimates'
+  // actual Email/Text send actions, not Copy Link — copying a link doesn't
+  // confirm anything was actually delivered.
+  async function markDocSent(doc, via) {
+    try {
+      const priorVia = (doc.sent_via || "").split(",").map(s => s.trim()).filter(Boolean);
+      const nextVia = priorVia.includes(via) ? priorVia : [...priorVia, via];
+      const patch = { sent_via: nextVia.join(","), sent_at: doc.sent_at || new Date().toISOString() };
+      await sbFetch(`documents?id=eq.${doc.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setDocs(prev => prev.map(d => d.id === doc.id ? { ...d, ...patch } : d));
+    } catch {}
   }
 
   async function copyDocLink(doc) {
@@ -15394,6 +15413,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
           : `Hi,\n\nYour ${docLabel} from S&H Services Spokane is ready to view.\n\nDocument: ${doc.name}\nDate: ${fmtDate(doc.uploaded_at)}${amountLine}\n\nView or download it here:\n${link}\n\nQuestions? Call us at (509) 903-5744.\n\nThank you,\nS&H Services Spokane LLC\nshservicesspokane.com`
       );
       window.open(`mailto:${emailTo}?subject=${subject}&body=${body}`);
+      if (docType === "estimate" && isSignFlow) await markDocSent(doc, "email");
       setEmailModal(null);
       setToast({ msg: "Email ready — review and hit send!", ok: true });
       setTimeout(() => setToast(null), 5000);
@@ -15430,6 +15450,7 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
         ? `sms:${phone}&body=${msg}`
         : `sms:${phone}?body=${msg}`;
       window.open(smsUrl);
+      if (docType === "estimate" && isSignFlow) await markDocSent(doc, "sms");
       setSmsModal(null);
       setToast({ msg: "Text ready — review and hit send!", ok: true });
       setTimeout(() => setToast(null), 5000);
@@ -15524,6 +15545,11 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
                 <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 4 }}>
                   {doc.uploaded_by} · {fmtDate(doc.uploaded_at)}
                 </div>
+                {docType === "estimate" && doc.sent_at && (
+                  <div style={{ fontSize: 11, color: BRAND.muted, marginTop: 3 }}>
+                    📤 Sent {fmtTs(doc.sent_at)}{doc.sent_via ? ` via ${doc.sent_via.replace("sms", "text")}` : ""}
+                  </div>
+                )}
                 {docType === "estimate" && getEstimateViewMeta(doc) && (
                   <div style={{ fontSize: 11, color: "#1D4ED8", fontWeight: 700, marginTop: 6 }}>
                     👁 Client viewed {fmtTs(getEstimateViewMeta(doc).lastViewedAt)}
