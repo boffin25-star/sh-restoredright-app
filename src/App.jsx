@@ -2922,7 +2922,7 @@ function SHMobileBottomNav({ tabs = [], activeTab, onSelect, taskBadge = 0 }) {
   );
 }
 
-function SHMoreMenu({ tabs, activeTab, onSelect, onClose }) {
+function SHMoreMenu({ tabs, activeTab, onSelect, onClose, user }) {
   const hiddenFromBottom = new Set(["home","tasks","jobs","calendar"]);
   const moreTabs = tabs.filter(t => !hiddenFromBottom.has(t.id));
   return (
@@ -5517,7 +5517,6 @@ function ScanExtract({ mode, onExtract, onClose }) {
 function ReceiptCard({ receipt, onSave, onDelete, onLightbox, user }) {
   const showDollars = canSeeDollars(user);
   const allowDelete = canDelete(user);
-  const displayDocs = docType === "estimate" ? docs.filter(d => !isEstimateAcceptanceDoc(d)) : docs;
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState({ vendor: receipt.vendor, amount: receipt.amount, category: receipt.category, note: receipt.note, travelHours: receipt.travelHours || "", billable: receipt.billable || false, paidBy: receipt.paidBy || "company" });
   const [saving, setSaving] = useState(false);
@@ -9601,7 +9600,15 @@ function MeasurementsSection({ job, onUpdate }) {
   const [lightbox, setLightbox] = useState(null);
   const [showPhotoEstimator, setShowPhotoEstimator] = useState(false);
   const [showMaterialCalc, setShowMaterialCalc] = useState(false);
-  // showSketch moved to SketchSection accordion
+  // NOTE: a prior edit's comment here claimed this moved to a "SketchSection
+  // accordion" — no such component exists anywhere in the file, and the
+  // showSketch/setShowSketch state that the modal below depends on had been
+  // deleted without a replacement, crashing this entire section on every job.
+  // Restored the state so it renders safely again. There's currently no
+  // button left anywhere in this component that calls setShowSketch(true) —
+  // worth deciding whether Room Sketch should get a trigger button back here,
+  // or whether it's meant to live only in the standalone Room Scanner app.
+  const [showSketch, setShowSketch] = useState(false);
   const [form, setForm] = useState({ ...BLANK_MEASURE });
   const [editForm, setEditForm] = useState({});
   const [uploading, setUploading] = useState(false);
@@ -15471,6 +15478,10 @@ function DocTypeTab({ user, jobs, docType, title, icon, emptyMsg, onJobsChanged 
     setTimeout(() => setToast(null), 2500);
   }
 
+  // Estimates list excludes the auto-generated "[Client Accepted]" acceptance
+  // copies (those render as a badge on the original instead) — contracts and
+  // invoices have no such copies, so they pass through unfiltered.
+  const displayDocs = docType === "estimate" ? docs.filter(d => !isEstimateAcceptanceDoc(d)) : docs;
 
   return (
     <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column" }}>
