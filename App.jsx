@@ -13,7 +13,7 @@ const SIDEBAR_LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAArMAAAK8CAYA
 const DESKTOP_BOX_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgNTIwIj4KPHJlY3QgeD0iMTgiIHk9IjE4IiB3aWR0aD0iNDg0IiBoZWlnaHQ9IjQ4NCIgcng9IjgiIGZpbGw9IiMwRDNCODAiLz4KPHJlY3QgeD0iMzYiIHk9IjM2IiB3aWR0aD0iNDQ4IiBoZWlnaHQ9IjQ0OCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIvPgo8cmVjdCB4PSI1MSIgeT0iNTEiIHdpZHRoPSI0MTgiIGhlaWdodD0iNDE4IiByeD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjMiLz4KPHRleHQgeD0iMjYwIiB5PSIyNTAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNTAiIGZvbnQtd2VpZ2h0PSI3MDAiPlMmYW1wO0g8L3RleHQ+CjxsaW5lIHgxPSI5MyIgeTE9IjI4OCIgeDI9IjQyNyIgeTI9IjI4OCIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjUiLz4KPHRleHQgeD0iMjYwIiB5PSIzNjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSI1OCIgZm9udC13ZWlnaHQ9IjcwMCIgbGV0dGVyLXNwYWNpbmc9IjUiPlNFUlZJQ0VTPC90ZXh0Pgo8bGluZSB4MT0iOTUiIHkxPSIzOTEiIHgyPSI0MjUiIHkyPSIzOTEiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cjx0ZXh0IHg9IjI2MCIgeT0iNDM4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjRkZGRkZGIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjciIGZvbnQtd2VpZ2h0PSI3MDAiIGxldHRlci1zcGFjaW5nPSI3Ij5TUE9LQU5FIExMQzwvdGV4dD4KPC9zdmc+";
 const NICELY_DONE_IMG = "/nicely-done.png";
 
-const BUILD_STAMP = "2026-08-09-desktop-header-sidebar-v3 — larger overlapping header logo, centered high-visibility search, smoother independent sidebar scrolling, and animated scroll cues.";
+const BUILD_STAMP = "2026-08-09-desktop-shell-v4 — oversized overlapping header logo, truly centered high-visibility search, eased sidebar wheel scrolling with visible scroll rail, and floating desktop Ask Erik on the right edge.";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJob2ZlYnZncHNvenB1YmVmenZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MjE2MzgsImV4cCI6MjA5NzM5NzYzOH0.1pLDZUpEFoOBQDbwEcX1sFTVXZ80e2NLM6cSKGjYmk4";
 
 const SB_HEADERS = {
@@ -2865,10 +2865,49 @@ function HomeScreen({ tabs, onSelect, user, allNotifs, backupReminder, jobs, sta
 }
 
 function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder, onAskErik }) {
+  const navRef = useRef(null);
+  const wheelTargetRef = useRef(0);
+  const wheelRafRef = useRef(null);
+
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    wheelTargetRef.current = el.scrollTop;
+
+    const onWheel = (e) => {
+      if (!e.deltaY) return;
+      e.preventDefault();
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      wheelTargetRef.current = Math.max(0, Math.min(max, wheelTargetRef.current + e.deltaY * 0.72));
+
+      if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current);
+      const animate = () => {
+        const diff = wheelTargetRef.current - el.scrollTop;
+        el.scrollTop += diff * 0.16;
+        if (Math.abs(diff) > 0.7) wheelRafRef.current = requestAnimationFrame(animate);
+        else {
+          el.scrollTop = wheelTargetRef.current;
+          wheelRafRef.current = null;
+        }
+      };
+      wheelRafRef.current = requestAnimationFrame(animate);
+    };
+
+    el.addEventListener("wheel", onWheel, { passive:false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current);
+    };
+  }, []);
+
   return (
     <aside className="sh-sidebar">
-      <div className="sh-sidebar-scroll-cue sh-sidebar-scroll-cue-top" aria-hidden="true">⌃</div>
-      <nav className="sh-sidebar-nav">
+      <div className="sh-sidebar-scroll-rail" aria-hidden="true">
+        <span className="sh-scroll-chevron sh-scroll-chevron-up">⌃</span>
+        <span className="sh-scroll-dots">•••</span>
+        <span className="sh-scroll-chevron sh-scroll-chevron-down">⌄</span>
+      </div>
+      <nav ref={navRef} className="sh-sidebar-nav">
         {tabs.map(t => {
           const active = activeTab === t.id;
           const svgIcon = TabIcons[t.id];
@@ -2882,12 +2921,7 @@ function SHDesktopSidebar({ tabs, activeTab, onSelect, backupReminder, onAskErik
           );
         })}
       </nav>
-      <div className="sh-sidebar-scroll-cue sh-sidebar-scroll-cue-bottom" aria-hidden="true">⌄</div>
       <div className="sh-sidebar-bottom">
-        <button className="sh-sidebar-erik" onClick={onAskErik} type="button" aria-label="Ask Erik">
-          <img src={`data:image/png;base64,${CHATBOT_ICON_B64}`} alt="" />
-          <span><strong>Ask Erik?</strong><small>Virtual Assistant</small><small>Available 24/7</small></span>
-        </button>
         <div className="sh-sidebar-restoration" aria-hidden="true">
           <span className="sh-restoration-small">Restoration</span>
           <span className="sh-restoration-large">Done Right!</span>
@@ -25677,75 +25711,95 @@ export default function App() {
 
 
           .desktop .sh-topbar{
-            left:0;right:0;height:78px;border-bottom:1px solid #DCE4EF;
-            padding:0 26px 0 0;background:rgba(255,255,255,.985);
-            box-shadow:0 3px 14px rgba(3,30,74,.10);
+            left:0!important;right:0!important;top:0!important;height:86px!important;
+            border-bottom:1px solid #DCE4EF!important;
+            padding:0 24px 0 0!important;
+            background:rgba(255,255,255,.99)!important;
+            box-shadow:0 4px 18px rgba(3,30,74,.12)!important;
+            overflow:visible!important;
+            z-index:220!important;
           }
           .desktop .sh-mobile-brand{
-            width:238px;height:78px;flex:0 0 238px;
-            display:flex;align-items:flex-start;justify-content:center;
-            border-right:1px solid #D7E2F0;
-            background:#fff;
-            box-shadow:4px 0 20px rgba(3,30,74,.05);
-            overflow:visible;position:relative;z-index:170;
+            width:238px!important;height:86px!important;flex:0 0 238px!important;
+            display:flex!important;align-items:flex-start!important;justify-content:center!important;
+            border-right:1px solid #D7E2F0!important;background:#fff!important;
+            overflow:visible!important;position:relative!important;z-index:230!important;
           }
           .desktop .sh-header-logo{
-            width:168px;height:124px;object-fit:contain;display:block;
-            margin-top:4px;position:relative;z-index:175;
-            filter:drop-shadow(0 5px 12px rgba(13,59,128,.16));
+            width:214px!important;height:158px!important;max-width:none!important;max-height:none!important;
+            object-fit:contain!important;display:block!important;
+            margin-top:5px!important;position:relative!important;z-index:235!important;
+            filter:drop-shadow(0 7px 14px rgba(13,59,128,.18))!important;
           }
           .desktop .sh-search-wrap{
-            position:absolute;left:50%;transform:translateX(-50%);
-            width:min(600px,44vw);margin-left:0;z-index:165;
+            position:fixed!important;
+            top:18px!important;left:50%!important;transform:translateX(-50%)!important;
+            width:min(680px,46vw)!important;max-width:680px!important;
+            margin:0!important;z-index:225!important;display:block!important;
           }
           .desktop .sh-search-wrap input{
-            height:48px;background:#FFFFFF!important;
-            border:2px solid #B8CBE7!important;border-radius:13px!important;
-            box-shadow:0 5px 16px rgba(13,59,128,.12)!important;
-            font-size:14px!important;font-weight:650!important;color:#17345F!important;
-            padding-left:44px!important;
+            width:100%!important;height:50px!important;
+            background:#F8FBFF!important;border:2px solid #9EBBE0!important;
+            border-radius:14px!important;
+            box-shadow:0 5px 18px rgba(13,59,128,.15)!important;
+            font-size:15px!important;font-weight:700!important;color:#17345F!important;
+            padding:0 46px!important;
           }
           .desktop .sh-search-wrap>span{
-            font-size:22px!important;color:#0D3B80!important;left:15px!important;
+            position:absolute!important;left:16px!important;top:50%!important;transform:translateY(-50%)!important;
+            font-size:24px!important;color:#0D3B80!important;z-index:2!important;
           }
-          .desktop .sh-search-wrap input::placeholder{color:#6F8098!important;opacity:1}
+          .desktop .sh-search-wrap input::placeholder{
+            color:#526986!important;opacity:1!important;font-weight:600!important;
+          }
           .desktop .sh-search-wrap:focus-within input{
-            border-color:#1456B8!important;
-            box-shadow:0 0 0 4px rgba(20,86,184,.10),0 7px 20px rgba(13,59,128,.14)!important;
+            background:#fff!important;border-color:#1456B8!important;
+            box-shadow:0 0 0 4px rgba(20,86,184,.12),0 8px 22px rgba(13,59,128,.17)!important;
           }
           .desktop .sh-sidebar{
-            position:fixed;left:0;top:78px;bottom:0;
-            height:auto;min-height:0;z-index:145;
-            border-top:0;
+            position:fixed!important;left:0!important;top:86px!important;bottom:0!important;
+            width:238px!important;height:auto!important;min-height:0!important;
+            z-index:190!important;border-top:0!important;overflow:hidden!important;
           }
           .desktop .sh-sidebar-nav{
-            flex:1;min-height:0;
-            padding-top:48px;padding-bottom:270px;
-            scroll-snap-type:y proximity;scroll-padding-top:36px;
-            scroll-behavior:smooth;-webkit-overflow-scrolling:touch;
-            overscroll-behavior-y:contain;
+            flex:1!important;min-height:0!important;
+            padding:94px 18px 205px 16px!important;
+            overflow-y:auto!important;overflow-x:hidden!important;
+            scroll-snap-type:none!important;scroll-behavior:auto!important;
+            scrollbar-width:none!important;-ms-overflow-style:none!important;
+            -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 22px,#000 calc(100% - 30px),transparent 100%)!important;
+                    mask-image:linear-gradient(to bottom,transparent 0,#000 22px,#000 calc(100% - 30px),transparent 100%)!important;
           }
-          .desktop .sh-sidebar-scroll-cue{
-            position:absolute;left:50%;transform:translateX(-50%);
-            width:36px;height:24px;border-radius:999px;
-            display:flex;align-items:center;justify-content:center;
-            background:rgba(13,59,128,.09);color:#0D3B80;
-            font-size:17px;font-weight:900;z-index:155;pointer-events:none;
-            box-shadow:0 2px 8px rgba(13,59,128,.10);
-            backdrop-filter:blur(5px);
-            animation:shScrollCue 1.65s ease-in-out infinite;
+          .desktop .sh-sidebar-nav::-webkit-scrollbar{display:none!important;width:0!important}
+          .desktop .sh-sidebar-scroll-cue{display:none!important}
+          .desktop .sh-sidebar-scroll-rail{
+            position:absolute;right:7px;top:108px;z-index:205;
+            width:24px;height:94px;border-radius:14px;
+            background:rgba(13,59,128,.075);
+            border:1px solid rgba(13,59,128,.10);
+            box-shadow:0 4px 12px rgba(13,59,128,.08);
+            display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+            padding:5px 0;color:#0D3B80;pointer-events:none;
+            backdrop-filter:blur(6px);
           }
-          .desktop .sh-sidebar-scroll-cue-top{top:14px}
-          .desktop .sh-sidebar-scroll-cue-bottom{bottom:214px}
-          @keyframes shScrollCue{
-            0%,100%{transform:translateX(-50%) translateY(0);opacity:.48}
-            50%{transform:translateX(-50%) translateY(5px);opacity:1}
+          .desktop .sh-scroll-chevron{
+            font-size:16px;font-weight:950;line-height:1;
+            animation:shScrollHint 1.7s ease-in-out infinite;
+          }
+          .desktop .sh-scroll-chevron-down{animation-delay:.25s}
+          .desktop .sh-scroll-dots{
+            writing-mode:vertical-rl;font-size:11px;letter-spacing:1px;opacity:.45;line-height:1;
+          }
+          @keyframes shScrollHint{
+            0%,100%{transform:translateY(0);opacity:.42}
+            50%{transform:translateY(3px);opacity:1}
           }
           .desktop .sh-main-workspace{
-            padding-top:78px;margin-left:238px;
-            width:calc(100% - 238px);
+            padding-top:86px!important;margin-left:238px!important;
+            width:calc(100% - 238px)!important;
           }
           .desktop .sh-dashboard{
+
             background:transparent;padding:28px 30px 30px;
           }
           .desktop .sh-dash-title{color:#FFFFFF;font-size:32px;text-shadow:0 2px 6px rgba(0,0,0,.16)}
@@ -26157,21 +26211,23 @@ export default function App() {
         {showChangePassword && <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />}
 
         {/* Floating chatbot button — no circle, just the Ask Erik character, enlarged */}
-        {!showChatbot && !isDesktopView && (
+        {!showChatbot && (
           <button
             onClick={() => setShowChatbot(true)}
             style={{
-              position: "absolute",
-              bottom: isDesktopView ? 42 : 48,
-              right: isDesktopView ? 8 : 4,
-              width: isDesktopView ? 92 : 78,
-              height: isDesktopView ? 92 : 78,
+              position: isDesktopView ? "fixed" : "absolute",
+              top: isDesktopView ? "46%" : "auto",
+              bottom: isDesktopView ? "auto" : 48,
+              right: isDesktopView ? 18 : 4,
+              transform: isDesktopView ? "translateY(-50%)" : "none",
+              width: isDesktopView ? 112 : 78,
+              height: isDesktopView ? 112 : 78,
               background: "none",
               border: "none",
               cursor: "pointer",
               padding: 0,
-              zIndex: 125,
-              filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.35))",
+              zIndex: isDesktopView ? 260 : 125,
+              filter: "drop-shadow(0 7px 16px rgba(0,0,0,0.30))",
             }}
             title="Ask Erik"
             aria-label="Ask Erik"
@@ -26181,6 +26237,14 @@ export default function App() {
               alt="Ask Erik"
               style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
             />
+            {isDesktopView && (
+              <span style={{
+                position:"absolute", right:82, top:37, whiteSpace:"nowrap",
+                background:"#FFFFFF", color:"#0D3B80", border:"1px solid #D7E2F0",
+                borderRadius:999, padding:"7px 12px", fontSize:12, fontWeight:850,
+                boxShadow:"0 5px 15px rgba(13,59,128,.14)"
+              }}>Ask Erik?</span>
+            )}
           </button>
         )}
 
